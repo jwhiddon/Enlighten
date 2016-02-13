@@ -1026,7 +1026,7 @@ void PoofAll() {
   if (DMXSerial.read(POOFER_START_CHANNEL + 6) >= 254) Solenoid(6, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 7) >= 254) Solenoid(7, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 8) >= 254) Solenoid(8, OPEN);
-  if (DMXSerial.read(POOFER_START_CHANNEL + 9)) >= 254) Solenoid(9, OPEN);
+  if (DMXSerial.read(POOFER_START_CHANNEL + 9) >= 254) Solenoid(9, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 10) >= 254) Solenoid(10, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 11) >= 254) Solenoid(11, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 12) >= 254) Solenoid(12, OPEN);
