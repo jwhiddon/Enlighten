@@ -112,7 +112,6 @@ TEST(diag_page_render) {
   char buf[DISPLAY_CHARS + 1];
   AuxPageInfo info;
   info.last_fault = FaultCode::WATCHDOG_RESET;
-  info.proto = Protocol::MIDI;
   info.sd_ok = true;
   info.link_ok = false;
   info.uptime_ms = (1u * 3600 + 23u * 60 + 45u) * 1000u;  // 1:23:45

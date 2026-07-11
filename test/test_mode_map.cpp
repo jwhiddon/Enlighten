@@ -1,4 +1,4 @@
-// Exhaustive verification of the mode-band map against docs/DMX_MAP.md.
+// Exhaustive verification of the mode-band map against docs/MIDI_MAP.md.
 // Locks the table: any drift between code and documentation fails here.
 #include "core/mode_select.h"
 #include "framework.h"

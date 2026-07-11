@@ -55,6 +55,135 @@ TEST(e2e_midi_cable_pull_disarms_via_active_sensing) {
   // values are decoder state, but link returning doesn't recreate the edge.
   p.stepAlive(10000);
   EXPECT_EQ(p.safety.state(), SafetyState::SAFE);
+  // Explicitly cycling the arm values re-arms.
+  p.feed({0xB0, 20, 0});
+  p.stepAlive(5);
+  p.feed({0xB0, 20, cfg::MIDI_ARM_A});
+  p.stepAlive(cfg::ARM_HOLD_MS + 10);
+  EXPECT_EQ(p.safety.state(), SafetyState::ARMED);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_latched_cc_state_cannot_arm_at_connect) {
+  // Controller connects with the arm CCs already in its saved state.
+  MidiPipeline p;
+  p.feed({0xB0, 20, cfg::MIDI_ARM_A});
+  p.feed({0xB0, 21, cfg::MIDI_ARM_B});
+  p.stepAlive(5000);
+  EXPECT_EQ(p.safety.state(), SafetyState::SAFE);  // rising edge required
+  // Cycle one value: arms.
+  p.feed({0xB0, 20, 0});
+  p.stepAlive(5);
+  p.feed({0xB0, 20, cfg::MIDI_ARM_A});
+  p.stepAlive(cfg::ARM_HOLD_MS + 10);
+  EXPECT_EQ(p.safety.state(), SafetyState::ARMED);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_cc_sweep_through_arm_value_cannot_arm) {
+  MidiPipeline p;
+  p.stepAlive(5);
+  p.feed({0xB0, 21, cfg::MIDI_ARM_B});
+  for (uint8_t v = 0; v < 128; ++v) {  // knob sweep passes 85 for ~1 ms
+    p.feed({0xB0, 20, v});
+    p.stepAlive(1);
+  }
+  p.stepAlive(cfg::ARM_HOLD_MS + 100);
+  EXPECT_EQ(p.safety.state(), SafetyState::SAFE);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_arm_key_gates_everything) {
+  MidiPipeline p;
+  p.hw.arm_key = false;
+  p.armViaCc();
+  EXPECT_EQ(p.safety.state(), SafetyState::SAFE);  // CCs alone can't arm
+  p.hw.arm_key = true;
+  p.feed({0xB0, 20, 0});  // cycle for a fresh edge
+  p.stepAlive(5);
+  p.feed({0xB0, 20, cfg::MIDI_ARM_A});
+  p.stepAlive(cfg::ARM_HOLD_MS + 10);
+  EXPECT_EQ(p.safety.state(), SafetyState::ARMED);
+  p.hw.arm_key = false;  // key pulled while armed
+  p.tick();
+  EXPECT_EQ(p.safety.state(), SafetyState::SAFE);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_estop_lockout_and_acknowledge) {
+  MidiPipeline p;
+  p.armViaCc();
+  p.feed({0xB0, 26, 127});  // repeat on
+  p.feed({0xB0, 23, 64});   // ~266 ms poof: still open at the check below
+  p.holdNotes();
+  p.selectMode(115);  // FIRE_ALL band
+  p.stepAlive(50);
+  EXPECT_TRUE(p.mask != 0);
+
+  p.hw.estop_ok = false;  // mushroom pressed
+  p.tick();
+  EXPECT_EQ(p.mask, (uint16_t)0);
+  EXPECT_EQ(p.safety.state(), SafetyState::FAULT_LOCKOUT);
+
+  p.hw.estop_ok = true;  // release alone re-enables nothing
+  p.stepAlive(2000);
+  EXPECT_EQ(p.safety.state(), SafetyState::FAULT_LOCKOUT);
+
+  // Acknowledging a lockout requires BOTH arm values down.
+  p.feed({0xB0, 20, 0});
+  p.feed({0xB0, 21, 0});
+  p.stepAlive(5);
+  EXPECT_EQ(p.safety.state(), SafetyState::SAFE);
+  p.feed({0xB0, 20, cfg::MIDI_ARM_A});
+  p.feed({0xB0, 21, cfg::MIDI_ARM_B});
+  p.stepAlive(cfg::ARM_HOLD_MS + 10);
+  EXPECT_EQ(p.safety.state(), SafetyState::ARMED);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_chase_pattern_order) {
+  MidiPipeline p;
+  p.armViaCc();
+  p.feed({0xB0, 23, 20});   // ~104 ms poof
+  p.feed({0xB0, 24, 0});    // min rest
+  p.feed({0xB0, 26, 127});  // repeat
+  p.holdNotes(1, 8);
+  p.selectMode(15);  // CHASE_UP band
+
+  uint16_t prev = 0;
+  int idx = 0;
+  bool order_ok = true;
+  int seen = 0;
+  for (int t = 0; t < 4000; ++t) {
+    p.feed({0xFE});
+    p.tick();
+    if (p.mask != 0 && p.mask != prev) {
+      if (p.mask != (uint16_t)(1u << (idx % 8))) order_ok = false;
+      ++idx;
+      ++seen;
+    }
+    prev = p.mask;
+  }
+  EXPECT_TRUE(seen >= 8);
+  EXPECT_TRUE(order_ok);
+  EXPECT_TRUE(p.checker.ok());
+}
+
+TEST(e2e_disabled_poofer_is_silent_gap) {
+  MidiPipeline p;
+  p.armViaCc();
+  p.feed({0xB0, 26, 127});
+  p.holdNotes(1, 8);
+  p.feed({0x80, (uint8_t)(cfg::MIDI_NOTE_FIRST + 2), 0});  // poofer 3 off
+  p.selectMode(15);  // CHASE_UP
+
+  bool fired3 = false;
+  for (int t = 0; t < 6000; ++t) {
+    p.feed({0xFE});
+    p.tick();
+    if (p.mask & (1u << 2)) fired3 = true;
+  }
+  EXPECT_FALSE(fired3);
   EXPECT_TRUE(p.checker.ok());
 }
 

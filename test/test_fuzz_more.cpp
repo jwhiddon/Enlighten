@@ -1,9 +1,9 @@
-// Additional fuzzers: protocol parsers/decoders under hostile bytes, and
-// the full DMX pipeline under random console behavior — started just below
-// the millis() wrap so every run also crosses the rollover.
+// Additional fuzzers: the MIDI parser under hostile bytes, the full
+// pipeline under random wire garbage and hardware events — started just
+// below the millis() wrap so every run also crosses the rollover — and
+// sequencer mode-thrash.
 #include <cstdio>
 
-#include "core/dmx_decoder.h"
 #include "core/midi_parser.h"
 #include "framework.h"
 #include "pipeline.h"
@@ -40,44 +40,23 @@ TEST(fuzz_midi_parser_hostile_bytes) {
   }
 }
 
-TEST(fuzz_dmx_decoder_hostile_frames) {
-  DmxDecoder dec;
-  XorShift32 rng(0x12345678);
-  uint8_t ch[DmxDecoder::NUM_CHANNELS];
-  TimeMs now = 0;
-  for (uint32_t i = 0; i < 200000; ++i) {
-    for (auto& c : ch) c = rng.byte();
-    uint32_t age = rng.oneIn(4) ? rng.next() % 2000 : 0;
-    ShowInput s = dec.decode(ch, age, ++now);
-    // Outputs must always be in range, whatever the frame contained.
-    EXPECT_TRUE(s.poof_ms >= cfg::MIN_POOF_MS && s.poof_ms <= cfg::MAX_POOF_MS);
-    EXPECT_TRUE(s.rest_ms >= cfg::MIN_REST_MS && s.rest_ms <= cfg::MAX_REST_MS);
-    EXPECT_TRUE((uint8_t)s.mode <= (uint8_t)ModeId::CHASE_OUT_IN);
-    if (!s.link_ok) {
-      EXPECT_FALSE(s.arm_a);
-      EXPECT_FALSE(s.arm_b);
-    }
-    if (testfw::failures()) return;
-  }
-}
-
-TEST(fuzz_full_dmx_pipeline_across_rollover) {
-  DmxPipeline p(0xFFFFFFFFu - 250000);  // wraps mid-run
+TEST(fuzz_full_midi_pipeline_across_rollover) {
+  // Random wire garbage straight into the parser plus random hardware
+  // events, crossing the 2^32 wrap mid-run.  The safety invariants must
+  // hold against ANY byte stream.
+  MidiPipeline p(0xFFFFFFFFu - 250000);
   XorShift32 rng(0xFEEDF00D);
   for (uint32_t i = 0; i < 500000; ++i) {
-    // Random console behavior: scribble on channels, yank cables, press
-    // the E-stop, cycle the key.
-    if (rng.oneIn(10)) p.ch[rng.next() % DmxDecoder::NUM_CHANNELS] = rng.byte();
-    if (rng.oneIn(500)) p.signal = !p.signal;
+    if (rng.oneIn(4)) p.feed({rng.byte()});     // hostile wire bytes
+    if (rng.oneIn(20)) p.feed({0xFE});          // intermittent heartbeats
     if (rng.oneIn(300)) p.hw.arm_key = !p.hw.arm_key;
     if (rng.oneIn(5000)) p.hw.estop_ok = false;
     if (!p.hw.estop_ok && rng.oneIn(400)) p.hw.estop_ok = true;
-    // Occasionally clear a lockout the legitimate way.
+    // Occasionally clear a lockout the legitimate way so ARMED paths get
+    // exercised again.
     if (p.safety.state() == SafetyState::FAULT_LOCKOUT && rng.oneIn(200)) {
       p.hw.estop_ok = true;
-      p.signal = true;
-      p.ch[0] = 0;
-      p.ch[1] = 0;
+      p.feed({0xFE, 0xB0, 20, 0, 0xB0, 21, 0});
     }
     p.tick();
     if (!p.checker.ok()) break;

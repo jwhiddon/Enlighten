@@ -87,17 +87,18 @@ TEST(rollover_chase_keeps_stepping) {
   EXPECT_TRUE(steps_after > 50);
 }
 
-TEST(rollover_end_to_end_dmx_pipeline) {
-  DmxPipeline p(BEFORE_WRAP);
-  p.armFromConsole();
+TEST(rollover_end_to_end_midi_pipeline) {
+  MidiPipeline p(BEFORE_WRAP);
+  p.armViaCc();
   EXPECT_EQ(p.safety.state(), SafetyState::ARMED);
-  p.ch[2] = 230;  // FIRE_ALL
-  p.ch[6] = 255;  // repeat
-  p.ch[3] = 128;
-  for (int i = 8; i < 24; ++i) p.ch[i] = 255;
+  p.feed({0xB0, 26, 127});  // repeat
+  p.feed({0xB0, 23, 64});   // mid poof duration
+  p.holdNotes();
+  p.selectMode(115);  // FIRE_ALL band
 
   uint32_t fired_after_wrap = 0;
   for (uint32_t i = 0; i < 60000; ++i) {
+    p.feed({0xFE});
     p.tick();
     if (p.now < 100000 && p.mask != 0) ++fired_after_wrap;
   }
