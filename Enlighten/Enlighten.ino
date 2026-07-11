@@ -13,14 +13,13 @@
 //     SafetySupervisor's return value.  Never bypass it.
 //   * The watchdog is fed ONLY when the safety filter actually ran.
 //
-// Docs: docs/SAFETY.md, docs/DMX_MAP.md, docs/MIDI_MAP.md, docs/HARDWARE.md
+// Docs: docs/SAFETY.md, docs/MIDI_MAP.md, docs/HARDWARE.md
 
 #include "src/board.h"
 #include "src/core/bench_console.h"
 #include "src/core/channel_leds.h"
 #include "src/core/config.h"
 #include "src/core/display_model.h"
-#include "src/core/dmx_decoder.h"
 #include "src/core/midi_decoder.h"
 #include "src/core/midi_parser.h"
 #include "src/core/panel_ui.h"
@@ -32,11 +31,9 @@
 
 static SafetySupervisor g_safety;
 static Sequencer g_sequencer;
-static DmxDecoder g_dmx;
 static MidiParser g_midi_parser;
 static MidiDecoder g_midi;
 static BenchConsole g_bench_console;
-static Protocol g_protocol = Protocol::MIDI;
 static bool g_bench = false;  // D5 jumper at boot: USB console, no show HW
 
 // SD-card standalone playback (PLAY button cycles/stops *.SHW files).
@@ -48,10 +45,9 @@ static char g_show_name[16] = {};
 static PanelUi g_ui;
 static ShowStats g_stats;
 
-// Signal the selected protocol on the LED before entering service:
-// 1 blink = DMX, 2 blinks = MIDI.  Runs before the watchdog is enabled.
-static void blinkProtocol(Protocol p) {
-  uint8_t n = (p == Protocol::MIDI) ? 2 : 1;
+// Boot LED signature (before the watchdog is enabled):
+// 2 blinks = normal MIDI service, 3 blinks = bench mode.
+static void blinkBoot(uint8_t n) {
   for (uint8_t i = 0; i < n; ++i) {
     Board::setStatusLed(true);
     Board::bootDelayMs(150);
@@ -101,8 +97,7 @@ void setup() {
     char screen[DISPLAY_CHARS + 1];
     ShowInput boot_in;
     renderDisplay(screen, SafetyState::BOOT_SELFTEST, FaultCode::NONE,
-                  Protocol::MIDI, boot_in, 0, false, Board::millisNow(),
-                  g_bench);
+                  boot_in, 0, false, Board::millisNow(), g_bench);
     for (uint8_t i = 0; i < DISPLAY_CHARS + 8; ++i)
       Board::displayService(screen);
   }
@@ -110,26 +105,16 @@ void setup() {
   FaultCode boot_fault = bootSelfTest(g_bench);
 
   if (g_bench) {
-    // Bench: USB serial console instead of a show protocol (3 boot blinks).
-    for (uint8_t i = 0; i < 3; ++i) {
-      Board::setStatusLed(true);
-      Board::bootDelayMs(150);
-      Board::setStatusLed(false);
-      Board::bootDelayMs(150);
-    }
+    // Bench: USB serial console instead of the MIDI input (3 boot blinks).
+    blinkBoot(3);
     Board::benchBegin();
     Board::benchPrint("\nENLIGHTEN BENCH MODE - sequencer test console\n");
     Board::benchPrint("Interlocks are SIMULATED. NEVER connect fuel.\n");
     Board::benchPrint(BenchConsole::helpText());
     Board::benchPrint("\n> ");
   } else {
-    g_protocol = Board::readProtocolSelect();
-    blinkProtocol(g_protocol);
-    if (g_protocol == Protocol::DMX) {
-      Board::dmxBegin();
-    } else {
-      Board::midiBegin();
-    }
+    blinkBoot(2);
+    Board::midiBegin();
   }
 
   g_sd_ok = Board::sdBegin();  // optional hardware; absent is fine
@@ -192,11 +177,6 @@ void loop() {
       }
     }
     in = g_bench_console.snapshot(now);
-  } else if (g_protocol == Protocol::DMX) {
-    uint8_t ch[DmxDecoder::NUM_CHANNELS];
-    for (uint8_t i = 0; i < DmxDecoder::NUM_CHANNELS; ++i)
-      ch[i] = Board::dmxRead((uint16_t)(i + 1));
-    in = g_dmx.decode(ch, Board::dmxAgeMs(), now);
   } else {
     int16_t b;
     MidiEvent ev;
@@ -267,14 +247,13 @@ void loop() {
     char screen[DISPLAY_CHARS + 1];
     DisplayPage pg = g_ui.page(now);
     if (pg == DisplayPage::STATUS) {
-      renderDisplay(screen, g_safety.state(), g_safety.fault(), g_protocol,
-                    in, mask, hw.arm_key, now, g_bench,
+      renderDisplay(screen, g_safety.state(), g_safety.fault(), in, mask,
+                    hw.arm_key, now, g_bench,
                     g_player.playing() ? g_show_name : nullptr,
                     g_player.positionMs());
     } else {
       AuxPageInfo info;
       info.last_fault = g_safety.fault();
-      info.proto = g_protocol;
       info.bench = g_bench;
       info.sd_ok = g_sd_ok;
       info.link_ok = in.link_ok;

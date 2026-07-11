@@ -34,9 +34,6 @@ void writeOutputs(uint16_t open_mask);
 
 HwInputs readHwInputs();
 
-// Sampled once at boot and latched for the session.
-Protocol readProtocolSelect();
-
 ResetCause resetCause();
 
 // Output-port readback check for the boot self-test.
@@ -62,10 +59,7 @@ void writeChannelLeds(uint16_t mask);
 void displayBegin();
 void displayService(const char* screen32);
 
-// Protocol glue
-void dmxBegin();
-uint8_t dmxRead(uint16_t channel);  // 1-based DMX channel
-uint32_t dmxAgeMs();                // ms since last valid packet
+// MIDI input glue (DIN on Serial1)
 void midiBegin();
 int16_t midiReadByte();  // next raw byte or -1
 
@@ -80,7 +74,7 @@ bool dispButtonPressed();  // display-page cycle button
 bool selButtonPressed();   // page-context select/input button
 
 // Bench mode: jumper sampled once at boot.  In bench mode the USB serial
-// port (free, since DMX is not started) is an interactive console.
+// port is an interactive console.
 bool benchSelected();
 void benchBegin();
 int16_t benchReadByte();  // next console byte or -1

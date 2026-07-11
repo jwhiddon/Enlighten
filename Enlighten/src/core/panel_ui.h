@@ -59,7 +59,6 @@ class PanelUi {
 
 struct AuxPageInfo {
   FaultCode last_fault = FaultCode::NONE;
-  Protocol proto = Protocol::MIDI;
   bool bench = false;
   bool sd_ok = false;
   bool link_ok = false;

@@ -1,6 +1,6 @@
 // Banded mode decode with hysteresis and time debounce.
 //
-// The raw selector (DMX channel or scaled CC) is split into 20-value bands.
+// The raw selector (CC22 scaled x2 onto 0-255) is split into 20-value bands.
 // Values within MODE_GUARD of an internal band boundary "hold" the current
 // mode, and a new band must persist MODE_DEBOUNCE_MS before it takes effect,
 // so a fader sweeping across the range cannot glitch through modes.

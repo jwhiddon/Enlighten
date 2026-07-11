@@ -1,11 +1,10 @@
-// The protocol-agnostic show-command model.  Decoders (DMX, MIDI) may ONLY
-// produce this struct; they never touch the sequencer, safety logic, or
-// outputs.  Both decoders are state-snapshot producers so the downstream
-// pipeline is identical regardless of protocol.
+// The protocol-agnostic show-command model.  Input sources (MIDI decoder,
+// bench console, future front-ends) may ONLY produce this struct; they
+// never touch the sequencer, safety logic, or outputs.
 #pragma once
 #include <stdint.h>
 
-// Effect modes.  The numeric order matters only to the DMX mode-band table
+// Effect modes.  The numeric order matters only to the mode-band table
 // in mode_select.cpp.
 enum class ModeId : uint8_t {
   OFF = 0,

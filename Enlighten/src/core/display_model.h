@@ -27,6 +27,6 @@
 // NUL-terminated, only printable ASCII.  `bench` marks bench mode loudly.
 // Pass `play_name` (+ position) while SD playback is running.
 void renderDisplay(char* out, SafetyState state, FaultCode fault,
-                   Protocol proto, const ShowInput& in, uint16_t firing_mask,
-                   bool arm_key, TimeMs now, bool bench = false,
+                   const ShowInput& in, uint16_t firing_mask, bool arm_key,
+                   TimeMs now, bool bench = false,
                    const char* play_name = nullptr, uint32_t play_pos_ms = 0);

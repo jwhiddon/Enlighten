@@ -83,9 +83,9 @@ void modeLine(char* row, ModeId m) {
 }  // namespace
 
 void renderDisplay(char* out, SafetyState state, FaultCode fault,
-                   Protocol proto, const ShowInput& in, uint16_t firing_mask,
-                   bool arm_key, TimeMs now, bool bench,
-                   const char* play_name, uint32_t play_pos_ms) {
+                   const ShowInput& in, uint16_t firing_mask, bool arm_key,
+                   TimeMs now, bool bench, const char* play_name,
+                   uint32_t play_pos_ms) {
   (void)now;
   char* l1 = out;
   char* l2 = out + DISPLAY_COLS;
@@ -94,8 +94,7 @@ void renderDisplay(char* out, SafetyState state, FaultCode fault,
   dispPut(l3, "");
   dispPut(l4, "");
 
-  const char* tag = bench ? "[USB]"
-                          : (proto == Protocol::MIDI ? "[MIDI]" : "[DMX]");
+  const char* tag = bench ? "[USB]" : "[MIDI]";
 
   switch (state) {
     case SafetyState::BOOT_SELFTEST:
@@ -110,8 +109,7 @@ void renderDisplay(char* out, SafetyState state, FaultCode fault,
       if (bench) dispPut(l2, in.link_ok ? "TYPE: arm" : "OPEN TERM 115200 8N1");
       else if (!in.link_ok) dispPut(l2, "NO SIGNAL");
       else if (!arm_key) dispPut(l2, "TURN KEY TO ARM");
-      else if (proto == Protocol::MIDI) dispPut(l2, "ARM: CC20+CC21");
-      else dispPut(l2, "ARM: SEND 85+170");
+      else dispPut(l2, "ARM: CC20+CC21");
       modeLine(l3, in.mode);
       break;
 

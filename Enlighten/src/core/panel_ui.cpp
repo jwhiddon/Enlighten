@@ -104,9 +104,7 @@ void renderAuxPage(char* out, DisplayPage page, const PanelUi& ui,
 
     case DisplayPage::DIAG: {
       dispPut(l1, "DIAG");
-      dispOverlayRight(l1, info.bench ? "[USB]" : (info.proto == Protocol::MIDI
-                                                       ? "[MIDI]"
-                                                       : "[DMX]"));
+      dispOverlayRight(l1, info.bench ? "[USB]" : "[MIDI]");
       // Uptime HHH:MM:SS
       uint32_t s = info.uptime_ms / 1000;
       dispPut(l2, "UP    :  :");

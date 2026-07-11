@@ -26,25 +26,17 @@ constexpr uint8_t  DUTY_BUCKETS = DUTY_WINDOW_MS / DUTY_BUCKET_MS + 1;
 
 // ---- Arming --------------------------------------------------------------
 constexpr uint16_t ARM_HOLD_MS = 500;   // handshake must be held this long
-constexpr uint8_t  DMX_ARM_A   = 85;    // DMX ch1 magic value
-constexpr uint8_t  DMX_ARM_B   = 170;   // DMX ch2 magic value
-constexpr uint8_t  DMX_ARM_TOL = 5;     // accepted window: value +/- TOL
 constexpr uint8_t  MIDI_ARM_A  = 85;    // CC20 (MIDI data is 7-bit: 0-127)
 constexpr uint8_t  MIDI_ARM_B  = 106;   // CC21
 
 // ---- Signal supervision (deadman) ----------------------------------------
-constexpr uint16_t DMX_TIMEOUT_MS     = 500;   // ~22 missed frames at 44 Hz
 constexpr uint16_t MIDI_AS_TIMEOUT_MS = 330;   // once active sensing is seen
 constexpr uint16_t MIDI_KEEPALIVE_MS  = 2000;  // otherwise: any byte required
 
-// ---- Mode selection -------------------------------------------------------
+// ---- Mode selection (CC22 scaled x2 onto 0-255 bands) ----------------------
 constexpr uint16_t MODE_DEBOUNCE_MS  = 150;
 constexpr uint8_t  MODE_BAND_WIDTH   = 20;
 constexpr uint8_t  MODE_GUARD        = 2;   // hold-current values at band edges
-
-// ---- DMX trigger thresholds ----------------------------------------------
-constexpr uint8_t  TRIG_ON_AT     = 200;  // >= fires / enables
-constexpr uint8_t  TRIG_OFF_BELOW = 100;  // < releases; 100-199 = hold (dead zone)
 
 // ---- MIDI mapping ----------------------------------------------------------
 constexpr uint8_t  MIDI_CHANNEL    = 0;    // MIDI channel 1 (0-based)

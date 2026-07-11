@@ -2,7 +2,8 @@
 
 namespace {
 // Band n covers raw values [n*20, n*20+19]; the last band extends to 255.
-// Documented in docs/DMX_MAP.md — keep the two in sync.
+// (CC22 is scaled x2 into this domain.)  Documented in docs/MIDI_MAP.md —
+// keep the two in sync.
 constexpr ModeId BAND_MODES[] = {
     ModeId::OFF,            //   0- 19
     ModeId::CHASE_UP,       //  20- 39

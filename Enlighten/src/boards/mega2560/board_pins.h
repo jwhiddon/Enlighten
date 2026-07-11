@@ -5,10 +5,8 @@
 
 namespace pins {
 constexpr uint8_t STATUS_LED = 13;
-constexpr uint8_t DMX_SHIELD_POWER = 9;  // legacy shield power gate
 constexpr uint8_t ESTOP = 2;             // NC loop to GND: LOW = circuit intact
 constexpr uint8_t ARM_KEY = 3;           // keyswitch to GND: LOW = arm permitted
-constexpr uint8_t PROTOCOL_SELECT = 4;   // open = MIDI (primary), GND = DMX
 constexpr uint8_t BENCH_SELECT = 5;      // jumper to GND at boot = bench mode
 constexpr uint8_t PLAY_BUTTON = 6;       // momentary to GND: SD show play/stop
 constexpr uint8_t DISP_BUTTON = 7;       // momentary to GND: cycle display pages

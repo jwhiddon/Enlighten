@@ -6,7 +6,6 @@
 #if defined(ARDUINO_AVR_MEGA2560) || defined(__AVR_ATmega2560__) || defined(__AVR_ATmega1280__)
 
 #include <Arduino.h>
-#include <DMXSerial.h>
 #include <SdFat.h>
 #include <Wire.h>
 #include <avr/wdt.h>
@@ -59,15 +58,10 @@ void init() {
 
   pinMode(pins::ESTOP, INPUT_PULLUP);
   pinMode(pins::ARM_KEY, INPUT_PULLUP);
-  pinMode(pins::PROTOCOL_SELECT, INPUT_PULLUP);
   pinMode(pins::BENCH_SELECT, INPUT_PULLUP);
   pinMode(pins::PLAY_BUTTON, INPUT_PULLUP);
   pinMode(pins::DISP_BUTTON, INPUT_PULLUP);
   pinMode(pins::SEL_BUTTON, INPUT_PULLUP);
-
-  // Hold the DMX shield unpowered until dmxBegin().
-  pinMode(pins::DMX_SHIELD_POWER, OUTPUT);
-  digitalWrite(pins::DMX_SHIELD_POWER, LOW);
 }
 
 TimeMs millisNow() { return (TimeMs)millis(); }
@@ -93,13 +87,6 @@ HwInputs readHwInputs() {
   hw.estop_ok = raw_ok && (!ever_bad || elapsedMs(last_bad, now) >= 10);
   hw.arm_key = digitalRead(pins::ARM_KEY) == LOW;
   return hw;
-}
-
-Protocol readProtocolSelect() {
-  // Open (pull-up high) = MIDI, the rig's primary protocol; jumper to GND
-  // for a DMX console.
-  return digitalRead(pins::PROTOCOL_SELECT) == LOW ? Protocol::DMX
-                                                   : Protocol::MIDI;
 }
 
 ResetCause resetCause() {
@@ -240,18 +227,6 @@ void displayService(const char* screen32) {
   }
 }
 
-void dmxBegin() {
-  DMXSerial.maxChannel(24);
-  DMXSerial.init(DMXReceiver);
-  // Power-cycle timing the legacy shield needs before it is enabled.
-  bootDelayMs(1000);
-  digitalWrite(pins::DMX_SHIELD_POWER, HIGH);
-}
-
-uint8_t dmxRead(uint16_t channel) { return DMXSerial.read((int)channel); }
-
-uint32_t dmxAgeMs() { return DMXSerial.noDataSince(); }
-
 void midiBegin() {
   Serial1.begin(31250);  // DIN MIDI on RX1 (pin 19)
 }
@@ -262,10 +237,8 @@ int16_t midiReadByte() {
 }
 
 // ---- SD-card standalone show playback ---------------------------------------
-// SdFat (not the stock SD library): the stock library's dead debug code
-// references the `Serial` object, which drags in HardwareSerial0 and its
-// USART0 interrupt vectors — colliding with DMXSerial's.  SdFat's core is
-// Serial-free (and MIT licensed).
+// SdFat rather than the stock SD library: leaner, MIT licensed, and its
+// core has no stray Serial references.
 namespace {
 bool g_sd_ok = false;
 SdFat g_sd;
@@ -329,51 +302,44 @@ bool selButtonPressed() { return digitalRead(pins::SEL_BUTTON) == LOW; }
 
 bool benchSelected() { return digitalRead(pins::BENCH_SELECT) == LOW; }
 
-// Bench console: polled register-level USART0 driver.  The Arduino
-// `Serial` object cannot be linked here — DMXSerial defines the USART0
-// interrupt vectors and the two collide.  In bench mode DMXSerial is never
-// initialized, so we drive the UART directly with no interrupts: RX is
-// polled each loop, TX drains from a ring buffer a byte at a time so a
-// long reply can never stall the safety loop.
+// Bench console on standard buffered `Serial` (USART0 is free now that
+// DMXSerial is gone).  An overflow ring on top of Serial's 64-byte TX
+// buffer keeps benchPrint non-blocking so a long reply can never stall
+// the safety loop; the ring drains opportunistically every loop.
 namespace {
-constexpr uint16_t BENCH_TXBUF = 384;
+constexpr uint16_t BENCH_TXBUF = 256;
 uint8_t bench_tx[BENCH_TXBUF];
 uint16_t bench_tx_head = 0;
 uint16_t bench_tx_tail = 0;
 
 void benchTxDrain() {
-  while (bench_tx_head != bench_tx_tail && (UCSR0A & _BV(UDRE0))) {
-    UDR0 = bench_tx[bench_tx_tail];
+  while (bench_tx_head != bench_tx_tail && Serial.availableForWrite() > 0) {
+    Serial.write(bench_tx[bench_tx_tail]);
     bench_tx_tail = (uint16_t)((bench_tx_tail + 1) % BENCH_TXBUF);
   }
 }
 }  // namespace
 
-void benchBegin() {
-  UCSR0A = _BV(U2X0);
-  UBRR0 = 16;  // 115200 baud at 16 MHz (U2X), same setup Arduino core uses
-  UCSR0B = _BV(RXEN0) | _BV(TXEN0);  // no interrupts — polled on purpose
-  UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);  // 8N1
-}
+void benchBegin() { Serial.begin(115200); }
 
 int16_t benchReadByte() {
   benchTxDrain();  // piggyback: called at least once per loop
-  return (UCSR0A & _BV(RXC0)) ? (int16_t)UDR0 : (int16_t)-1;
+  int v = Serial.read();
+  return v < 0 ? (int16_t)-1 : (int16_t)v;
 }
 
 void benchPrint(const char* s) {
   while (*s) {
-    uint16_t next = (uint16_t)((bench_tx_head + 1) % BENCH_TXBUF);
-    while (next == bench_tx_tail) {  // ring full: block for one slot
-      while (!(UCSR0A & _BV(UDRE0))) {
-      }
-      UDR0 = bench_tx[bench_tx_tail];
-      bench_tx_tail = (uint16_t)((bench_tx_tail + 1) % BENCH_TXBUF);
+    if (bench_tx_head == bench_tx_tail && Serial.availableForWrite() > 0) {
+      Serial.write((uint8_t)*s++);  // fast path: straight into the ISR buffer
+      continue;
     }
+    uint16_t next = (uint16_t)((bench_tx_head + 1) % BENCH_TXBUF);
+    while (next == bench_tx_tail) benchTxDrain();  // ring full: wait for ISR
     bench_tx[bench_tx_head] = (uint8_t)*s++;
     bench_tx_head = next;
-    benchTxDrain();
   }
+  benchTxDrain();
 }
 
 void bootDelayMs(uint16_t ms) { delay(ms); }
