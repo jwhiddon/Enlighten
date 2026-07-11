@@ -1,9 +1,8 @@
 #include "display_model.h"
 
-namespace {
+// ---- shared helpers (declared in display_text.h) -----------------------------
 
-// Copy s into a 20-column row, space-padded, truncated if oversized.
-void put(char* row, const char* s) {
+void dispPut(char* row, const char* s) {
   uint8_t i = 0;
   while (i < DISPLAY_COLS && s[i]) {
     row[i] = s[i];
@@ -12,8 +11,7 @@ void put(char* row, const char* s) {
   while (i < DISPLAY_COLS) row[i++] = ' ';
 }
 
-// Overlay s right-aligned onto an already-filled row.
-void overlayRight(char* row, const char* s) {
+void dispOverlayRight(char* row, const char* s) {
   uint8_t len = 0;
   while (s[len]) ++len;
   if (len > DISPLAY_COLS) len = DISPLAY_COLS;
@@ -21,8 +19,7 @@ void overlayRight(char* row, const char* s) {
   for (uint8_t i = 0; i < len; ++i) row[start + i] = s[i];
 }
 
-// Right-aligned decimal into dst[0..width-1], space-padded.
-void numTo(char* dst, uint16_t v, uint8_t width) {
+void dispNumTo(char* dst, uint32_t v, uint8_t width) {
   for (int8_t i = (int8_t)width - 1; i >= 0; --i) {
     if (v || i == (int8_t)width - 1) {
       dst[i] = (char)('0' + v % 10);
@@ -33,7 +30,7 @@ void numTo(char* dst, uint16_t v, uint8_t width) {
   }
 }
 
-const char* modeName(ModeId m) {
+const char* dispModeName(ModeId m) {
   switch (m) {
     case ModeId::OFF:           return "OFF";
     case ModeId::RAW:           return "RAW";
@@ -51,7 +48,7 @@ const char* modeName(ModeId m) {
   return "?";
 }
 
-const char* faultName(FaultCode f) {
+const char* dispFaultName(FaultCode f) {
   switch (f) {
     case FaultCode::NONE:             return "NO FAULT";
     case FaultCode::WATCHDOG_RESET:   return "WATCHDOG RESET";
@@ -67,6 +64,8 @@ const char* faultName(FaultCode f) {
   return "?";
 }
 
+namespace {
+
 void modeLine(char* row, ModeId m) {
   char line[DISPLAY_COLS + 1];
   const char* prefix = "MODE: ";
@@ -75,10 +74,10 @@ void modeLine(char* row, ModeId m) {
     line[i] = prefix[i];
     ++i;
   }
-  const char* mn = modeName(m);
+  const char* mn = dispModeName(m);
   for (uint8_t j = 0; mn[j] && i < DISPLAY_COLS; ++j) line[i++] = mn[j];
   line[i] = 0;
-  put(row, line);
+  dispPut(row, line);
 }
 
 }  // namespace
@@ -92,40 +91,40 @@ void renderDisplay(char* out, SafetyState state, FaultCode fault,
   char* l2 = out + DISPLAY_COLS;
   char* l3 = out + 2 * DISPLAY_COLS;
   char* l4 = out + 3 * DISPLAY_COLS;
-  put(l3, "");
-  put(l4, "");
+  dispPut(l3, "");
+  dispPut(l4, "");
 
   const char* tag = bench ? "[USB]"
                           : (proto == Protocol::MIDI ? "[MIDI]" : "[DMX]");
 
   switch (state) {
     case SafetyState::BOOT_SELFTEST:
-      put(l1, bench ? "ENLIGHTEN BENCH" : "ENLIGHTEN v2");
-      put(l2, "SELF-TEST...");
+      dispPut(l1, bench ? "ENLIGHTEN BENCH" : "ENLIGHTEN v2");
+      dispPut(l2, "SELF-TEST...");
       break;
 
     case SafetyState::SAFE:
-      put(l1, bench ? "BENCH SAFE" : "SAFE");
-      overlayRight(l1, tag);
+      dispPut(l1, bench ? "BENCH SAFE" : "SAFE");
+      dispOverlayRight(l1, tag);
       // The most useful thing to tell an operator: what is missing.
-      if (bench) put(l2, in.link_ok ? "TYPE: arm" : "OPEN TERM 115200 8N1");
-      else if (!in.link_ok) put(l2, "NO SIGNAL");
-      else if (!arm_key) put(l2, "TURN KEY TO ARM");
-      else if (proto == Protocol::MIDI) put(l2, "ARM: CC20+CC21");
-      else put(l2, "ARM: SEND 85+170");
+      if (bench) dispPut(l2, in.link_ok ? "TYPE: arm" : "OPEN TERM 115200 8N1");
+      else if (!in.link_ok) dispPut(l2, "NO SIGNAL");
+      else if (!arm_key) dispPut(l2, "TURN KEY TO ARM");
+      else if (proto == Protocol::MIDI) dispPut(l2, "ARM: CC20+CC21");
+      else dispPut(l2, "ARM: SEND 85+170");
       modeLine(l3, in.mode);
       break;
 
     case SafetyState::ARM_PENDING:
-      put(l1, bench ? "BENCH ARMING..." : "ARMING...");
-      if (!bench) overlayRight(l1, tag);
-      put(l2, "HOLD ARM VALUES");
+      dispPut(l1, bench ? "BENCH ARMING..." : "ARMING...");
+      if (!bench) dispOverlayRight(l1, tag);
+      dispPut(l2, "HOLD ARM VALUES");
       modeLine(l3, in.mode);
       break;
 
     case SafetyState::ARMED: {
-      put(l1, "ARMED");
-      overlayRight(l1, modeName(in.mode));
+      dispPut(l1, "ARMED");
+      dispOverlayRight(l1, dispModeName(in.mode));
 
       // Live poofer bar, column i = poofer i+1.
       l2[0] = ' ';
@@ -136,11 +135,11 @@ void renderDisplay(char* out, SafetyState state, FaultCode fault,
       l2[19] = ']';
 
       char line[DISPLAY_COLS + 1];
-      put(line, "POOF       REST");
+      dispPut(line, "POOF       REST");
       line[DISPLAY_COLS] = 0;
-      numTo(line + 5, in.poof_ms, 4);
-      numTo(line + 16, in.rest_ms, 4);
-      put(l3, line);
+      dispNumTo(line + 5, in.poof_ms, 4);
+      dispNumTo(line + 16, in.rest_ms, 4);
+      dispPut(l3, line);
 
       if (play_name) {
         // "> MM:SS <file>"
@@ -157,25 +156,25 @@ void renderDisplay(char* out, SafetyState state, FaultCode fault,
         for (uint8_t j = 0; play_name[j] && i < DISPLAY_COLS; ++j)
           line[i++] = play_name[j];
         line[i] = 0;
-        put(l4, line);
+        dispPut(l4, line);
       } else {
-        put(line, "REPEAT      RATE");
+        dispPut(line, "REPEAT      RATE");
         line[DISPLAY_COLS] = 0;
         line[7] = 'O';
         line[8] = in.repeat ? 'N' : 'F';
         if (!in.repeat) line[9] = 'F';
-        numTo(line + 17, in.rate, 3);
-        put(l4, line);
+        dispNumTo(line + 17, in.rate, 3);
+        dispPut(l4, line);
       }
       break;
     }
 
     case SafetyState::FAULT_LOCKOUT:
-      put(l1, "FAULT LOCKOUT");
+      dispPut(l1, "FAULT LOCKOUT");
       l1[19] = (char)('0' + ((uint8_t)fault <= 9 ? (uint8_t)fault : 9));
-      put(l2, faultName(fault));
-      put(l3, "CLEAR: LINK UP +");
-      put(l4, "ARM VALUES DOWN");
+      dispPut(l2, dispFaultName(fault));
+      dispPut(l3, "CLEAR: LINK UP +");
+      dispPut(l4, "ARM VALUES DOWN");
       break;
   }
 

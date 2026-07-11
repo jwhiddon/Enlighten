@@ -16,15 +16,12 @@
 //            REPEAT ON   RATE 128         ARM VALUES DOWN
 //            (line 4 shows "> MM:SS <file>" during SD playback)
 #pragma once
+#include "display_text.h"
 #include "faults.h"
 #include "hw_inputs.h"
 #include "safety.h"
 #include "show_input.h"
 #include "timebase.h"
-
-constexpr uint8_t DISPLAY_COLS = 20;
-constexpr uint8_t DISPLAY_ROWS = 4;
-constexpr uint8_t DISPLAY_CHARS = DISPLAY_COLS * DISPLAY_ROWS;
 
 // `out` must hold DISPLAY_CHARS + 1 bytes; always space-padded, always
 // NUL-terminated, only printable ASCII.  `bench` marks bench mode loudly.

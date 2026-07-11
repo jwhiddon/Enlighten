@@ -54,6 +54,9 @@ constexpr uint8_t  MIDI_VEL_GATE   = 64;   // note-on velocity >= this fires
 // ---- Bench mode -------------------------------------------------------------
 constexpr uint32_t BENCH_KEEPALIVE_MS = 120000;  // console silence -> disarm
 
+// ---- Operator panel ----------------------------------------------------------
+constexpr uint32_t DISPLAY_PAGE_TIMEOUT_MS = 30000;  // aux pages auto-return
+
 // ---- Loop supervision -------------------------------------------------------
 constexpr uint16_t LOOP_BUDGET_MS = 5;   // longer gap between filters = fault
 
