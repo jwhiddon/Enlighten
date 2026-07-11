@@ -13,6 +13,12 @@ constexpr uint8_t DISP_BUTTON = 7;       // momentary to GND: cycle display page
 constexpr uint8_t SEL_BUTTON = 8;        // momentary to GND: page-context input
 constexpr uint8_t SD_CS = 53;            // SD card module chip select (SPI)
 
+// Tri-color panel LED chain (APA102/SK9822): 16 LEDs on two wires.
+// D11 = PB5 (data in), D12 = PB6 (clock in) — the driver bit-bangs PORTB
+// directly, so changing these means changing the driver too.
+constexpr uint8_t LED_DATA = 11;
+constexpr uint8_t LED_CLOCK = 12;
+
 // 16x2 LCD on a PCF8574 I2C backpack, D20 (SDA) / D21 (SCL).
 // Common addresses: 0x27 (PCF8574) or 0x3F (PCF8574A) — set to match yours.
 constexpr uint8_t LCD_I2C_ADDR = 0x27;

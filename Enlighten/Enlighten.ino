@@ -233,10 +233,16 @@ void loop() {
   Board::setStatusLed(
       statusLedOn(g_safety.state(), g_safety.fault(), mask != 0, now));
 
-  // Per-solenoid panel LEDs: solid = valve open (filtered truth),
-  // dim = armed + enabled, dark = disarmed.
-  Board::writeChannelLeds(
-      channelLedMask(g_safety.state(), in.trigger_mask, mask, now));
+  // Tri-color panel LEDs: red = firing live, blue = firing from SD
+  // playback, amber = duty-throttled, green = armed + enabled, dark =
+  // disarmed.  Derived from the FILTERED mask (the truth) plus the
+  // request so throttling is visible.
+  {
+    ChannelLedColor led_colors[cfg::NUM_POOFERS];
+    channelLedColors(led_colors, g_safety.state(), in.trigger_mask, mask,
+                     requested, g_player.mask());
+    Board::writeChannelLeds(led_colors);
+  }
 
   // Show statistics (STATS page), fed the filtered output — the truth.
   g_stats.update(mask, now);

@@ -11,7 +11,11 @@
 #include <avr/wdt.h>
 
 #include "../../board.h"
+#include "../../core/config.h"
 #include "board_pins.h"
+
+// Idle (all-closed) port level for the configured output polarity.
+static constexpr uint8_t OUT_IDLE = cfg::OUTPUTS_ACTIVE_LOW ? 0xFF : 0x00;
 
 // ---- Reset-cause capture ----------------------------------------------------
 // Captured in .init3, BEFORE main()/setup(): the stock Mega bootloader does
@@ -37,24 +41,21 @@ static constexpr uint8_t FAULT_MAGIC = 0xA5;
 namespace Board {
 
 void init() {
-  // Solenoid ports FIRST: all outputs, all closed (active low: 1 = closed).
-  PORTA = 0xFF;
-  PORTC = 0xFF;
+  // Solenoid ports FIRST: all outputs, all closed for the configured
+  // polarity (cfg::OUTPUTS_ACTIVE_LOW).
+  PORTA = OUT_IDLE;
+  PORTC = OUT_IDLE;
   DDRA = 0xFF;
   DDRC = 0xFF;
-  PORTA = 0xFF;  // re-assert after direction change
-  PORTC = 0xFF;
+  PORTA = OUT_IDLE;  // re-assert after direction change
+  PORTC = OUT_IDLE;
 
   pinMode(pins::STATUS_LED, OUTPUT);
   digitalWrite(pins::STATUS_LED, LOW);
 
-  // Per-solenoid panel LEDs: PORTL = LEDs 1-8 (D49..D42), PORTK = LEDs
-  // 9-16 (A8..A15).  Active high, all off at boot.  (SPI D50-D53 is
-  // deliberately left free for a future SD-card show player.)
-  PORTL = 0x00;
-  PORTK = 0x00;
-  DDRL = 0xFF;
-  DDRK = 0xFF;
+  // Panel LED chain (APA102): D11 data / D12 clock as outputs, low.
+  DDRB |= _BV(PB5) | _BV(PB6);
+  PORTB &= (uint8_t)~(_BV(PB5) | _BV(PB6));
 
   pinMode(pins::ESTOP, INPUT_PULLUP);
   pinMode(pins::ARM_KEY, INPUT_PULLUP);
@@ -67,9 +68,10 @@ void init() {
 TimeMs millisNow() { return (TimeMs)millis(); }
 
 void writeOutputs(uint16_t open_mask) {
-  // Active low: invert.  bit i of open_mask = poofer i OPEN.
-  PORTA = (uint8_t)~(open_mask & 0xFF);
-  PORTC = (uint8_t)~((open_mask >> 8) & 0xFF);
+  // bit i of open_mask = poofer i OPEN; polarity per cfg::OUTPUTS_ACTIVE_LOW.
+  uint16_t drive = cfg::OUTPUTS_ACTIVE_LOW ? (uint16_t)~open_mask : open_mask;
+  PORTA = (uint8_t)(drive & 0xFF);
+  PORTC = (uint8_t)((drive >> 8) & 0xFF);
 }
 
 HwInputs readHwInputs() {
@@ -97,9 +99,9 @@ ResetCause resetCause() {
 }
 
 bool selfTestOutputs() {
-  // Both ports were driven to 0xFF (closed) in init(); read them back.
-  // A shorted driver or solder bridge shows up as a stuck-low bit.
-  return PINA == 0xFF && PINC == 0xFF;
+  // Both ports were driven to the all-closed level in init(); read them
+  // back.  A shorted driver or solder bridge shows up as a stuck bit.
+  return PINA == OUT_IDLE && PINC == OUT_IDLE;
 }
 
 void watchdogEnable() { wdt_enable(WDTO_120MS); }
@@ -121,9 +123,58 @@ FaultCode recoverPersistedFault() {
 
 void setStatusLed(bool on) { digitalWrite(pins::STATUS_LED, on ? HIGH : LOW); }
 
-void writeChannelLeds(uint16_t mask) {
-  PORTL = (uint8_t)(mask & 0xFF);         // LEDs 1-8: PL0..PL7 = D49..D42
-  PORTK = (uint8_t)((mask >> 8) & 0xFF);  // LEDs 9-16: PK0..PK7 = A8..A15
+// ---- Tri-color panel LED chain (APA102/SK9822) -------------------------------
+// Bit-banged on D11 (PB5, data) / D12 (PB6, clock) with direct port
+// writes: a full 16-LED frame is ~150 us, and it is only sent when a
+// color actually changed.  APA102 is clocked, so unlike WS2812 there is
+// no interrupt-blackout window to threaten MIDI reception.
+namespace {
+struct LedRgb {
+  uint8_t r, g, b;
+};
+// Indexed by ChannelLedColor.  Modest brightness for a panel indoors.
+const LedRgb LED_PALETTE[] = {
+    {0, 0, 0},     // OFF
+    {0, 60, 0},    // GREEN  armed + enabled
+    {220, 0, 0},   // RED    firing (live)
+    {220, 60, 0},  // AMBER  duty-throttled
+    {0, 60, 220},  // BLUE   firing (SD playback)
+};
+ChannelLedColor led_last[cfg::NUM_POOFERS];
+bool led_forced = true;  // send the first frame unconditionally
+
+inline void apaBit(bool bit) {
+  if (bit) PORTB |= _BV(PB5);
+  else PORTB &= (uint8_t)~_BV(PB5);
+  PORTB |= _BV(PB6);
+  PORTB &= (uint8_t)~_BV(PB6);
+}
+
+void apaByte(uint8_t v) {
+  for (uint8_t m = 0x80; m; m >>= 1) apaBit((v & m) != 0);
+}
+}  // namespace
+
+void writeChannelLeds(const ChannelLedColor* colors) {
+  bool changed = led_forced;
+  for (uint8_t i = 0; i < cfg::NUM_POOFERS; ++i) {
+    if (colors[i] != led_last[i]) {
+      led_last[i] = colors[i];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  led_forced = false;
+
+  for (uint8_t i = 0; i < 4; ++i) apaByte(0x00);  // start frame
+  for (uint8_t i = 0; i < cfg::NUM_POOFERS; ++i) {
+    const LedRgb& c = LED_PALETTE[(uint8_t)colors[i]];
+    apaByte(0xE0 | 10);  // header + global brightness (10/31)
+    apaByte(c.b);
+    apaByte(c.g);
+    apaByte(c.r);
+  }
+  for (uint8_t i = 0; i < 4; ++i) apaByte(0xFF);  // end frame
 }
 
 // ---- 20x4 LCD on a PCF8574 I2C backpack -------------------------------------

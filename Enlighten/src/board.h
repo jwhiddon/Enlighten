@@ -7,6 +7,7 @@
 #pragma once
 #include <stdint.h>
 
+#include "core/channel_leds.h"
 #include "core/faults.h"
 #include "core/hw_inputs.h"
 #include "core/timebase.h"
@@ -48,8 +49,10 @@ FaultCode recoverPersistedFault();
 
 void setStatusLed(bool on);
 
-// 16 per-solenoid panel LEDs (bit i = LED i lit).  Indicators only.
-void writeChannelLeds(uint16_t mask);
+// 16 tri-color per-solenoid panel LEDs (APA102/SK9822 chain).  Renders
+// only when something changed; a full frame costs ~150 us.  Indicators
+// only.  `colors` points at cfg::NUM_POOFERS entries.
+void writeChannelLeds(const ChannelLedColor* colors);
 
 // Operator display (16x2 character LCD, optional hardware).
 // displayBegin() probes and initializes; the rig runs headless if absent.

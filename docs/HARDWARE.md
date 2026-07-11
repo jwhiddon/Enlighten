@@ -17,8 +17,7 @@ This checklist is part of the safety design — see docs/SAFETY.md.
 | D50–D53 | SD card (SPI) | standalone .SHW playback; CS = D53 |
 | D13 | Status LED | see SAFETY.md for patterns |
 | D20/D21 | Operator LCD (optional) | 20×4 HD44780 via PCF8574 I²C backpack, addr 0x27/0x3F |
-| D49–D42 (PORTL) | Panel LEDs 1–8 | active high, 330 Ω to GND; D49 = LED 1 |
-| A8–A15 (PORTK) | Panel LEDs 9–16 | active high; SPI (D50–D53) kept free for future SD player |
+| D11/D12 | Panel LED chain | APA102/SK9822 tri-color chain: data/clock (+5 V, GND); PORTL/PORTK now spare |
 | RX0/TX0 (USB) | bench console / future telemetry | free in normal service |
 | RX1 (D19) | MIDI in | via 6N138 optocoupler per MIDI spec |
 

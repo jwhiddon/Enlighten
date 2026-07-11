@@ -1,44 +1,56 @@
 #include "core/channel_leds.h"
 #include "framework.h"
 
+namespace {
+struct Leds {
+  ChannelLedColor c[cfg::NUM_POOFERS];
+  void render(SafetyState st, uint16_t enabled, uint16_t firing,
+              uint16_t requested, uint16_t playback = 0) {
+    channelLedColors(c, st, enabled, firing, requested, playback);
+  }
+};
+}  // namespace
+
 TEST(leds_dark_unless_armed) {
-  for (TimeMs t = 0; t < 32; ++t) {
-    EXPECT_EQ(channelLedMask(SafetyState::SAFE, 0xFFFF, 0xFFFF, t), (uint16_t)0);
-    EXPECT_EQ(channelLedMask(SafetyState::FAULT_LOCKOUT, 0xFFFF, 0xFFFF, t),
-              (uint16_t)0);
-    EXPECT_EQ(channelLedMask(SafetyState::ARM_PENDING, 0xFFFF, 0xFFFF, t),
-              (uint16_t)0);
-    EXPECT_EQ(channelLedMask(SafetyState::BOOT_SELFTEST, 0xFFFF, 0xFFFF, t),
-              (uint16_t)0);
+  Leds l;
+  SafetyState states[] = {SafetyState::BOOT_SELFTEST, SafetyState::SAFE,
+                          SafetyState::ARM_PENDING, SafetyState::FAULT_LOCKOUT};
+  for (auto st : states) {
+    l.render(st, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
+    for (int i = 0; i < cfg::NUM_POOFERS; ++i)
+      EXPECT_EQ((int)l.c[i], (int)ChannelLedColor::OFF);
   }
 }
 
-TEST(leds_firing_is_solid) {
-  // A firing channel is lit at EVERY tick — solid, not dimmed.
-  for (TimeMs t = 0; t < 64; ++t) {
-    uint16_t m = channelLedMask(SafetyState::ARMED, 0x0000, 0x0005, t);
-    EXPECT_EQ(m & 0x0005, (uint16_t)0x0005);
-  }
+TEST(leds_live_fire_is_red_playback_fire_is_blue) {
+  Leds l;
+  // ch1 firing live, ch2 firing from the SD player.
+  l.render(SafetyState::ARMED, 0x0003, /*firing=*/0x0003,
+           /*requested=*/0x0003, /*playback=*/0x0002);
+  EXPECT_EQ((int)l.c[0], (int)ChannelLedColor::RED);
+  EXPECT_EQ((int)l.c[1], (int)ChannelLedColor::BLUE);
 }
 
-TEST(leds_armed_enabled_is_dim_duty) {
-  // An enabled-but-idle channel is lit exactly 1 tick in 8.
-  uint32_t lit = 0;
-  for (TimeMs t = 0; t < 800; ++t)
-    if (channelLedMask(SafetyState::ARMED, 0x0002, 0x0000, t) & 0x0002) ++lit;
-  EXPECT_EQ(lit, (uint32_t)100);  // 12.5% of 800
+TEST(leds_throttled_is_amber) {
+  Leds l;
+  // ch3 requested but the filter is holding it closed (duty budget).
+  l.render(SafetyState::ARMED, 0x0004, /*firing=*/0x0000,
+           /*requested=*/0x0004);
+  EXPECT_EQ((int)l.c[2], (int)ChannelLedColor::AMBER);
 }
 
-TEST(leds_mixed_states_per_channel) {
-  // ch1 firing (solid), ch2 enabled (dim), ch3 neither (off).
-  uint32_t lit1 = 0, lit2 = 0, lit3 = 0;
-  for (TimeMs t = 0; t < 160; ++t) {
-    uint16_t m = channelLedMask(SafetyState::ARMED, 0x0003, 0x0001, t);
-    if (m & 0x0001) ++lit1;
-    if (m & 0x0002) ++lit2;
-    if (m & 0x0004) ++lit3;
-  }
-  EXPECT_EQ(lit1, (uint32_t)160);  // solid
-  EXPECT_EQ(lit2, (uint32_t)20);   // dim
-  EXPECT_EQ(lit3, (uint32_t)0);    // off
+TEST(leds_enabled_is_green_idle_is_off) {
+  Leds l;
+  l.render(SafetyState::ARMED, /*enabled=*/0x0001, 0, 0);
+  EXPECT_EQ((int)l.c[0], (int)ChannelLedColor::GREEN);
+  EXPECT_EQ((int)l.c[1], (int)ChannelLedColor::OFF);
+}
+
+TEST(leds_priority_firing_over_throttle_over_enable) {
+  Leds l;
+  l.render(SafetyState::ARMED, /*enabled=*/0x0001, /*firing=*/0x0001,
+           /*requested=*/0x0001);
+  EXPECT_EQ((int)l.c[0], (int)ChannelLedColor::RED);
+  l.render(SafetyState::ARMED, 0x0001, 0x0000, 0x0001);
+  EXPECT_EQ((int)l.c[0], (int)ChannelLedColor::AMBER);
 }

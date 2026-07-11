@@ -64,10 +64,15 @@ limits (max 500 ms open, 50 ms forced close, 30% duty per 10 s).
 | 7 | D28 | PA6 | | 15 | D31 | PC6 |
 | 8 | D29 | PA7 | | 16 | D30 | PC7 |
 
-**Verify the relay board is active-low and pulled up**: with the Mega
-unplugged from the relay board, every relay must stay OFF. If any relay
-turns on with a floating input, add 10 kΩ pull-ups from each input to 5 V.
-This is what keeps the valves closed during resets — do not skip it.
+**Verify the relay board polarity and idle-state behavior**: the firmware
+ships configured for **active-low** boards (`OUTPUTS_ACTIVE_LOW` in
+`src/core/config.h`); flip it to `false` for typical active-high
+MOSFET/SSR boards. Either way, with the Mega unplugged every channel must
+stay OFF — add 10 kΩ pull-ups (active-low) or pull-downs (active-high) to
+the driver inputs if not. This is what keeps the valves closed during
+resets — do not skip it. If you switch to solid-state drivers, remember
+semiconductors tend to fail SHORTED: the hardwired E-stop path and a
+normally-closed master fuel valve matter even more.
 
 **Control inputs:**
 
@@ -82,8 +87,7 @@ This is what keeps the valves closed during resets — do not skip it.
 | D50–D53 | SD card module (optional) | Standard SPI wiring: MISO→D50, MOSI→D51, SCK→D52, CS→D53, 5 V module or 3.3 V with level shifting. |
 | D13 | Status LED | Onboard; optionally wire a panel LED (with resistor) in parallel. |
 | D20/D21 | Operator LCD (optional) | **20×4** HD44780 with PCF8574 I²C backpack: SDA→D20, SCL→D21, 5 V, GND. Default address 0x27 (0x3F for PCF8574A — set in `board_pins.h`). |
-| D49…D42 | Panel LEDs 1–8 (optional) | LED n anode → pin (D49 = LED 1, descending to D42 = LED 8), cathode → resistor (≈330 Ω) → GND. |
-| A8…A15 | Panel LEDs 9–16 (optional) | Same wiring; A8 = LED 9 … A15 = LED 16. (D50–D53/SPI intentionally kept free.) |
+| D11/D12 | Panel LED chain (optional) | 16 APA102/SK9822 tri-color LEDs daisy-chained: D11→DI (data), D12→CI (clock), plus 5 V + GND. LED 1 first in the chain. |
 | USB (RX0/TX0) | Bench console (§5b) | Free in normal service. |
 | D19 (RX1) | MIDI in | Via the 6N138 circuit below. |
 
@@ -194,17 +198,21 @@ with SEL and it overrides the console/CC mode until you cycle back to
 AUTO. This is choreography-only input — arming, deadman, E-stop, and duty
 limits are completely unaffected by the panel buttons.
 
-### 2.7 Per-solenoid panel LEDs (optional)
+### 2.7 Per-solenoid panel LEDs (optional, tri-color)
 
-16 LEDs on the box, one per solenoid (wiring in §2.2):
+16 APA102/SK9822 addressable RGB LEDs on a two-wire chain (wiring in
+§2.2), one per solenoid:
 
-* **Dark** — disarmed / lockout. The whole panel doubles as a
-  rig-is-cold indicator visible across the room.
-* **Dim** — system ARMED and that poofer is enabled (in the pattern /
-  trigger held).
-* **Solid bright** — that solenoid is **open right now**. The LEDs are
-  driven from the safety filter's actual output, so they show what the
-  valves are doing, never merely what was requested.
+| Color | Meaning |
+|---|---|
+| **Dark** | Disarmed / lockout — the dark panel reads "rig is cold" across the room |
+| **Green** | ARMED and this poofer enabled (in the pattern / trigger held) |
+| **Red** | Solenoid **open right now**, fired live (MIDI/panel) |
+| **Blue** | Solenoid open right now, fired by SD playback |
+| **Amber** | Requested but held closed by the duty limiter — the "why is it quiet" state, now visible |
+
+Colors derive from the safety filter's actual output (never merely the
+request), so the panel always shows what the valves are doing.
 
 ## 4. Understanding the status LED
 
