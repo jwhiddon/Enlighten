@@ -14,7 +14,7 @@ git tag if ever needed.)
 | `test/` | Host-side unit tests — the executable safety contract. `run_tests.ps1` / `run_tests.sh` (needs g++) |
 | `examples/` | **Feature tour**: narrated, runnable walkthrough of every feature on a simulated clock — `examples/run_demo.ps1` |
 | `tools/` | **Show tools**: `seqgen` composes duty-limit-verified shows (`--seconds`, `--poofers`) as `.show` + playable `.mid`; `showplay` previews/validates them |
-| `docs/` | **[MANUAL.md](docs/MANUAL.md) — start here** · [SAFETY.md](docs/SAFETY.md) · [MIDI_MAP.md](docs/MIDI_MAP.md) · [HARDWARE.md](docs/HARDWARE.md) |
+| `docs/` | **[MANUAL.md](docs/MANUAL.md) — start here** · [SAFETY.md](docs/SAFETY.md) · [MIDI_MAP.md](docs/MIDI_MAP.md) · [HARDWARE.md](docs/HARDWARE.md) · [SHIELD.md](docs/SHIELD.md) |
 | `legacy/` | The original EnlightenDMX sketch plus the retired v2 DMX map and Freestyler profile |
 
 ## Safety model (short version)

@@ -3,6 +3,11 @@
 Firmware safeguards mean nothing if the electrical layer can defeat them.
 This checklist is part of the safety design — see docs/SAFETY.md.
 
+For a PCB that consolidates the point-to-point wiring below onto one
+Mega shield (MIDI opto, E-stop/keyswitch/button terminals, LCD/LED/SD
+headers, solenoid output header), see [SHIELD.md](SHIELD.md) — design
+intent, not yet fabricated.
+
 ## Pin map (Arduino Mega 2560)
 
 | Pin | Function | Wiring |
