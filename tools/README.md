@@ -98,6 +98,5 @@ Copy the `.show` file to a FAT SD card with an **8.3 filename and `.SHW`
 extension** (`OPENER.SHW`), insert it in the controller, arm, and press
 the PLAY button. See MANUAL §7.4 — all safety layers still gate playback.
 
-DMX-only rig? Use the `.show` file as the cue timeline for your console's
-show recorder, or script it into Freestyler; a direct DMX player would
-need a PC-to-DMX interface and is a natural future addition.
+(The `.show` format is controller-agnostic — any future front-end can
+replay it; the retired DMX path lives at the `v2-last-dmx` git tag.)

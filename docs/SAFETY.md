@@ -11,10 +11,9 @@ firmware **cannot** provide and must exist in hardware.
 ## Architecture: one authority, one output path
 
 ```
-DMX bytes → DmxDecoder ─┐
-                        ├→ ShowInput → Sequencer → requested mask
-MIDI bytes → MidiDecoder┘                              │
-HwInputs (E-stop, arm key) ─────────────┐              ▼
+MIDI bytes → MidiDecoder ──┐
+Bench console / SD player ─┴→ ShowInput → Sequencer → requested mask
+HwInputs (E-stop, arm key) ─────────────┐              │
                       SafetySupervisor::filter()   ← FINAL authority
                                         │
                                         ▼
@@ -51,10 +50,10 @@ ALL of the following, simultaneously:
 
 1. Physical **arm keyswitch** closed (panel key).
 2. **E-stop loop intact** (NC circuit; a broken wire reads as pressed).
-3. **Signal present** (DMX packets fresh / MIDI heartbeat alive).
-4. Two-value handshake: ARM_A = 85 and ARM_B = 170 (DMX ch1/ch2; CC20=85 /
-   CC21=106 for MIDI) — two distinct mid-scale magic values that a fader
-   sweep, a blackout (0), or a full-on flash (255) can never produce.
+3. **Signal present** (MIDI heartbeat alive).
+4. Two-value handshake: CC20 = 85 and CC21 = 106 — two distinct mid-scale
+   magic values that a knob sweep, all-zeros, or all-full state can never
+   produce together.
 5. Held continuously for **500 ms**.
 6. **Rising edge**: the supervisor must have seen the arm values
    de-asserted **over a live link** since it last entered SAFE. A console
@@ -65,9 +64,9 @@ ALL of the following, simultaneously:
 
 ### Disarm / deadman (continuous permission)
 
-* Either arm value leaving its window, the keyswitch opening, or signal
-  loss (DMX > 500 ms, MIDI heartbeat lapse) → SAFE **in the same loop
-  iteration** (sub-millisecond).
+* Either arm value changing, the keyswitch opening, or signal loss
+  (Active Sensing lapse >330 ms / 2 s byte silence) → SAFE **in the same
+  loop iteration** (sub-millisecond).
 * E-stop assertion → FAULT_LOCKOUT in the same iteration. Releasing the
   E-stop alone re-enables nothing.
 
@@ -110,7 +109,7 @@ or the sequencer requests — including hostile/corrupt input:
   calls.
 * Reset cause is captured in `.init3` (before the runtime starts) and a
   watchdog/brownout reset boots directly into FAULT_LOCKOUT with the cause
-  on the LED. The legacy behavior of using resets for "DMX recovery" is
+  on the LED. The legacy behavior of using resets for signal recovery is
   gone: signal loss is a disarm, not a reboot.
 
 ## Boot self-test
@@ -119,7 +118,7 @@ or the sequencer requests — including hostile/corrupt input:
 2. Output-port readback (stuck-low driver bit → lockout).
 3. E-stop loop intact.
 4. Timebase advances.
-5. Protocol select sampled and latched; LED blinks 1× (DMX) or 2× (MIDI).
+5. Boot signature on the LED: 2 blinks (normal service) or 3 (bench mode).
 
 ## NFPA 160 concept mapping
 
@@ -143,21 +142,22 @@ effect requires the hardware items and operational controls too, plus AHJ
 
 ## Executable safety contract
 
-`test/` holds the proof — 116 tests across five layers:
+`test/` holds the proof — 140 tests across five layers:
 
 1. **Unit tests** per module (timing, duty limiting, state machine,
-   sequencer, mode banding, both protocol decoders, status LED patterns).
-2. **End-to-end pipeline scenarios** (`test_pipeline_*.cpp`): real 24-byte
-   DMX frames and raw MIDI byte streams through decoder → sequencer →
-   safety exactly as `Enlighten.ino` wires them — arming procedures,
-   E-stop/acknowledge cycles, cable pulls, saved-scene patch-in.
+   sequencer, mode banding, MIDI parser/decoder, display, bench console,
+   SD show player, panel UI, status LED patterns).
+2. **End-to-end pipeline scenarios** (`test_pipeline_midi.cpp`): raw MIDI
+   byte streams through parser → decoder → sequencer → safety exactly as
+   `Enlighten.ino` wires them — arming procedures, E-stop/acknowledge
+   cycles, cable pulls, latched-state connect, knob sweeps.
 3. **Rollover tests** (`test_rollover.cpp`): every stateful component
    driven straight through the 2^32 millis() wrap.
 4. **Fuzzers**: 2M ticks against the safety filter with hostile request
-   masks, 500k hostile bytes against the MIDI parser, 200k hostile frames
-   against the DMX decoder, 500k ticks of random console behavior against
-   the full pipeline (crossing the rollover), and mode-thrash against the
-   sequencer — all asserting the invariants every tick.
+   masks, 500k hostile bytes against the MIDI parser, 500k ticks of
+   random wire garbage and hardware events against the full pipeline
+   (crossing the rollover), and mode-thrash against the sequencer — all
+   asserting the invariants every tick.
 5. **Meta-tests** (`test_checker.cpp`) proving the invariant checker itself
    catches each violation class — the guard rails are tested too.
 

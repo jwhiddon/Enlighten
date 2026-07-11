@@ -6,7 +6,7 @@ detail lives in the companion docs:
 
 * [SAFETY.md](SAFETY.md) — the safety architecture and NFPA 160 mapping
 * [HARDWARE.md](HARDWARE.md) — electrical requirements and bench checklist
-* [DMX_MAP.md](DMX_MAP.md) / [MIDI_MAP.md](MIDI_MAP.md) — protocol maps
+* [MIDI_MAP.md](MIDI_MAP.md) — the control protocol map
 
 > ⚠️ **This controller operates propane flame effects.** Firmware is one
 > layer of the safety system. Do not connect fuel until every step of
@@ -20,16 +20,14 @@ detail lives in the companion docs:
 ## 1. System overview
 
 ```
-DMX console (Freestyler etc.) ──DMX cable──┐
-                                           ├─> Arduino Mega 2560 ──> 16-relay board ──> solenoid valves
-MIDI keyboard / DAW ──────DIN cable────────┘        │
-                                                    ├─ E-stop (also hardwired to valve power)
-                                                    ├─ Arm keyswitch
-                                                    └─ Status LED
+MIDI keyboard / DAW ──DIN cable──> Arduino Mega 2560 ──> 16-relay board ──> solenoid valves
+SD card (.SHW shows) ────────────────────┘  │
+                                            ├─ E-stop (also hardwired to valve power)
+                                            ├─ Arm keyswitch
+                                            └─ Status LED + LCD + panel buttons
 ```
 
-One firmware image supports both protocols; a jumper selects DMX or MIDI
-at power-up. The controller will not fire unless ALL of these are true:
+The controller will not fire unless ALL of these are true:
 physical key ON, E-stop circuit intact, control signal alive, the arming
 handshake sent and held, and the request within the per-channel duty
 limits (max 500 ms open, 50 ms forced close, 30% duty per 10 s).
@@ -43,7 +41,6 @@ limits (max 500 ms open, 50 ms forced close, 30% duty per 10 s).
 | Qty | Item |
 |---|---|
 | 1 | Arduino Mega 2560 |
-| 1 | Isolated DMX receiver shield (DMXSerial-compatible, UART0) |
 | 1 | 16-channel relay board (or MOSFET board), **active-low inputs** |
 | 16 | Fuel-rated solenoid valves (per your fuel-train design) |
 | 1 | NC mushroom-head E-stop (2 NC contact blocks) |
@@ -78,18 +75,16 @@ This is what keeps the valves closed during resets — do not skip it.
 |---|---|---|
 | D2 | E-stop monitor | One NC contact block: D2 → switch → GND. Circuit closed = OK. |
 | D3 | Arm keyswitch | D3 → keyswitch → GND. Closed = arming permitted. |
-| D4 | Protocol select | Leave open for **MIDI** (primary). Jumper to GND for **DMX**. |
 | D5 | Bench mode select | Jumper to GND at boot = bench/test mode (§5b). Remove for shows. |
 | D6 | PLAY button (optional) | Momentary to GND: start next / stop SD show (§7.4). |
 | D7 | DISP button (optional) | Momentary to GND: cycle display pages (§2.6). |
 | D8 | SEL button (optional) | Momentary to GND: page-context input (§2.6). |
 | D50–D53 | SD card module (optional) | Standard SPI wiring: MISO→D50, MOSI→D51, SCK→D52, CS→D53, 5 V module or 3.3 V with level shifting. |
-| D9 | DMX shield power gate | Per your shield (legacy Enlighten shield uses this). |
 | D13 | Status LED | Onboard; optionally wire a panel LED (with resistor) in parallel. |
 | D20/D21 | Operator LCD (optional) | **20×4** HD44780 with PCF8574 I²C backpack: SDA→D20, SCL→D21, 5 V, GND. Default address 0x27 (0x3F for PCF8574A — set in `board_pins.h`). |
 | D49…D42 | Panel LEDs 1–8 (optional) | LED n anode → pin (D49 = LED 1, descending to D42 = LED 8), cathode → resistor (≈330 Ω) → GND. |
 | A8…A15 | Panel LEDs 9–16 (optional) | Same wiring; A8 = LED 9 … A15 = LED 16. (D50–D53/SPI intentionally kept free.) |
-| RX0 | DMX in | Via the isolated DMX shield. |
+| USB (RX0/TX0) | Bench console (§5b) | Free in normal service. |
 | D19 (RX1) | MIDI in | Via the 6N138 circuit below. |
 
 **E-stop — two independent paths (required):** the SECOND NC contact block
@@ -124,7 +119,7 @@ current fuse settings first).
 ```
 winget install ArduinoSA.CLI          # or download from arduino.github.io
 arduino-cli core install arduino:avr
-arduino-cli lib install DMXSerial
+arduino-cli lib install SdFat
 ```
 
 ### 3.2 Build and flash
@@ -216,7 +211,8 @@ limits are completely unaffected by the panel buttons.
 | Pattern | Meaning |
 |---|---|
 | Solid on (briefly at boot) | Self-test running |
-| 1–2 quick blinks after self-test | Selected protocol: 1 = DMX, 2 = MIDI |
+| 2 quick blinks after self-test | Normal (MIDI) service starting |
+| 3 quick blinks after self-test | **Bench mode** (D5 jumper in) |
 | Slow 1 Hz blink | SAFE (disarmed) — normal idle |
 | Double-blink burst | ARM_PENDING (handshake hold timer running) |
 | Fast 4 Hz blink | **ARMED** — treat the effect as live |
@@ -280,56 +276,16 @@ only the E-stop wiring check.
 Rules: bench mode is for relay/valve **dry** testing and sequencer
 development. **Never connect fuel with the bench jumper in.** Pull the D5
 jumper before show wiring — the 3-blink boot pattern and the LCD banner
-exist so a forgotten jumper is obvious (the rig also ignores DMX/MIDI
+exist so a forgotten jumper is obvious (the rig also ignores MIDI
 entirely in bench mode, so it cannot run a show by accident).
 
-## 6. Operating with DMX
+## 6. DMX (removed)
 
-### 6.1 Console setup (Freestyler)
-
-Build the 24-channel fixture per [Freestyler/README.md](../Freestyler/README.md):
-put ARM A/ARM B (channels 1/2) behind dedicated override/macro **buttons**
-(values 85 and 170) — never on faders, never saved inside scenes. Poofer
-triggers (channels 9–24) are full-on buttons (255 = fire, 0 = off; the
-100–199 range is a hold zone, so don't park faders there).
-
-### 6.2 Arming procedure
-
-1. Turn the panel key to ARM. LED still blinks slow (SAFE).
-2. Confirm both arm buttons are OFF, then press **ARM A (ch1 = 85)** and
-   **ARM B (ch2 = 170)** together and keep them on.
-3. After a deliberate half-second hold the LED goes to the fast 4 Hz
-   blink: **the system is live.**
-4. To disarm at any time: release either arm button (instant), turn the
-   key, or kill the DMX line. All of them close every valve immediately.
-
-Things that will (correctly) refuse to arm: the key off; a scene recalled
-with the arm values already in it (cycle the buttons off/on); values
-swept through by a fader; anything held less than 500 ms; a controller
-that was disconnected and reconnected (cycle the buttons).
-
-### 6.3 Running effects
-
-* **Mode (ch3):** select with preset buttons at band centers (see
-  [DMX_MAP.md](DMX_MAP.md)): chases up/down/in/out and their ping-pong
-  variants (poofers 1–8, IN/OUT fire mirrored pairs), ALTERNATE
-  (evens/odds), FIRE_ALL, and RAW (each trigger channel fires its poofer
-  directly — play it like drum pads).
-* **Poof (ch4)** 30–500 ms and **Rest (ch5)** 45–2000 ms set the pattern
-  timing; **Rate (ch6)** is a master tempo fader (128 = 1.0×); **ch7 ≥128**
-  makes patterns repeat, otherwise they run once and wait.
-* Trigger channels 9–24 double as per-poofer **enables** in pattern modes —
-  drop one to take a poofer out of the pattern instantly.
-* The duty limiter is always on top: no matter what you send, a channel
-  never opens >500 ms continuously, always rests ≥50 ms, and gets at most
-  3 s of open time per rolling 10 s. If a poofer "goes quiet" during heavy
-  use, that's the budget — it refills within seconds.
-
-### 6.4 Signal loss
-
-If DMX disappears for 0.5 s the system closes everything and disarms.
-When the signal returns it stays disarmed until you cycle the arm buttons
-— re-arming is always a deliberate human act.
+DMX support was removed when MIDI became the sole control protocol —
+it freed the USB port, ~0.5 KB of RAM, and a class of UART conflicts.
+If a DMX venue ever requires it, the complete v2 DMX implementation
+(decoder, channel map, Freestyler profile, tests) lives at the git tag
+**`v2-last-dmx`**, and the retired docs are in [legacy/](../legacy/).
 
 ---
 
@@ -337,8 +293,8 @@ When the signal returns it stays disarmed until you cycle the arm buttons
 
 ### 7.1 Setup
 
-Power down, jumper D4 to GND, power up — the LED double-blinks at boot to
-confirm MIDI mode. Connect DIN MIDI to the 6N138 input. Use MIDI channel 1.
+Connect DIN MIDI to the 6N138 input (the LED double-blinks at boot when
+entering normal service). Use MIDI channel 1.
 
 If your keyboard/interface supports **Active Sensing**, enable it: it
 gives you a ~⅓-second cable-pull deadman. If it doesn't, keep any MIDI
@@ -350,7 +306,7 @@ once a second from your DAW) — silence disarms the rig.
 1. Key to ARM.
 2. Send **CC20 = 85** and **CC21 = 106** (map them to two buttons/pads on
    your controller). Hold ARMED after the 500 ms hold — fast LED blink.
-3. Select a mode with **CC22** (0–127, scaled onto the DMX bands; 125 =
+3. Select a mode with **CC22** (0–127, see the band table in MIDI_MAP; 125 =
    RAW). CC23/24/25/26 = poof, rest, rate, repeat.
 4. In RAW mode, notes **C2–D#3 (36–51)** fire poofers 1–16 like drum pads —
    velocity ≥ 64 fires, softer notes are ignored entirely. In pattern
@@ -424,12 +380,12 @@ test suite and feature tour reproduce nearly every behavior off-hardware.
 
 | Symptom | Check |
 |---|---|
-| Won't arm, LED stays slow-blink | Key on D3 actually closing to GND? Arm values exactly 85/170 (DMX ±5) and both held ≥500 ms? Were the values already up when you connected (cycle them off/on)? Signal alive? |
+| Won't arm, LED stays slow-blink | Key on D3 actually closing to GND? CC20 exactly 85 and CC21 exactly 106, both held ≥500 ms? Were the values already latched when you connected (cycle them off/on)? Signal alive? |
 | 5 blinks at every boot | E-stop pressed, or the D2 loop is open — check the wiring; a broken wire reads as pressed (by design). |
 | 6 blinks in service | E-stop was pressed. Release, drop both arm values, re-arm. |
 | 1 blink at boot | Watchdog reset — the firmware hung. Note what preceded it and report; the rig is safe (that's the point) but the cause should be found. |
 | 4 blinks at boot | Output self-test failed — a driver pin reads wrong. Do not use until found. |
-| Poofer never fires | Its trigger/enable channel ≥200 (DMX) or note velocity ≥64 (MIDI)? In a chase, poofers 9–16 don't participate (patterns run on 1–8). Duty budget spent (wait a few seconds)? |
+| Poofer never fires | Note velocity ≥64 (softer is ignored by design)? In a chase, poofers 9–16 don't participate (patterns run on 1–8). Duty budget spent (wait a few seconds)? |
 | Poofer fires short | Poof time is clamped to 500 ms max, and the duty limiter force-closes at 500 ms regardless of the fader. |
 | Mode won't change | Values within 2 of a band boundary hold the current mode; move to a band center and hold ≥150 ms. |
 | Random disarms on MIDI | Active-Sensing gaps or >2 s of silence. Enable AS or add a keepalive. |

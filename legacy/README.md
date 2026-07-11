@@ -1,4 +1,9 @@
-# Legacy firmware (frozen)
+# Legacy firmware and retired components (frozen)
+
+* `DMX_MAP.md` / `Freestyler/` — the v2 DMX channel map and Freestyler
+  fixture profile, retired when MIDI became the sole control protocol.
+  The full v2 DMX implementation (decoder, board glue, tests) lives at
+  the git tag `v2-last-dmx`.
 
 * `EnlightenDMX/` — the original single-file DMX sketch (with the 2026
   bug-fix pass: rollover-safe timing, RawDMX stuck-solenoid fixes, watchdog

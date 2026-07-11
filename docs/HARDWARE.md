@@ -11,17 +11,15 @@ This checklist is part of the safety design — see docs/SAFETY.md.
 | PORTC (D37–D30) | Poofers 9–16 relay drive | active LOW |
 | D2 | E-stop monitor | NC loop to GND; INPUT_PULLUP (open = stop) |
 | D3 | Arm keyswitch | key closes to GND; INPUT_PULLUP |
-| D4 | Protocol select | open = MIDI (primary), jumper to GND = DMX (sampled at boot) |
 | D5 | Bench mode | jumper to GND at boot = USB test console, interlocks simulated — never with fuel |
 | D6 | PLAY button | momentary to GND: SD show start/next/stop |
 | D7/D8 | DISP / SEL buttons | display page cycling and page-context input |
 | D50–D53 | SD card (SPI) | standalone .SHW playback; CS = D53 |
-| D9 | DMX shield power gate | legacy shield enable |
 | D13 | Status LED | see SAFETY.md for patterns |
 | D20/D21 | Operator LCD (optional) | 20×4 HD44780 via PCF8574 I²C backpack, addr 0x27/0x3F |
 | D49–D42 (PORTL) | Panel LEDs 1–8 | active high, 330 Ω to GND; D49 = LED 1 |
 | A8–A15 (PORTK) | Panel LEDs 9–16 | active high; SPI (D50–D53) kept free for future SD player |
-| RX0 | DMX in | via isolated DMX shield (DMXSerial) |
+| RX0/TX0 (USB) | bench console / future telemetry | free in normal service |
 | RX1 (D19) | MIDI in | via 6N138 optocoupler per MIDI spec |
 
 ## Required safety hardware (firmware cannot substitute)
@@ -51,7 +49,6 @@ This checklist is part of the safety design — see docs/SAFETY.md.
 
 * **NEMA 4/4X enclosure** for outdoor propane service (hose-down/corrosion
   rated); glands/strain relief on every penetration.
-* DMX in on an **isolated** RS-485 front end (isolated DMX shield).
 * MIDI in through the standard 6N138 opto circuit (inherent isolation).
 * Label the E-stop and arm key clearly at the operator position.
 * Solenoid flyback protection (diodes on DC valve coils / RC snubbers on
@@ -68,9 +65,9 @@ This checklist is part of the safety design — see docs/SAFETY.md.
    boot; in service → 6 blinks (ESTOP_ASSERTED), relays closed.
 3. Arm without the keyswitch → stays SAFE. Arm with key + handshake → fast
    blink after 0.5 s.
-4. Kill the DMX cable while firing → all relays close within 0.5 s, LED
-   back to slow SAFE blink; restoring DMX does NOT re-arm until the arm
-   values are cycled.
+4. Pull the MIDI cable while firing → all relays close within ~⅓ s
+   (Active Sensing deadman), LED back to slow SAFE blink; reconnecting
+   does NOT re-arm until the arm values are cycled.
 5. Hold a RAW trigger continuously → relay opens ≤0.5 s at a time, forced
    50 ms closes, and total open time visibly throttles (duty budget).
 6. Induced hang (test build with a deliberate `while(1)` behind a jumper)
@@ -82,6 +79,6 @@ This checklist is part of the safety design — see docs/SAFETY.md.
 The core is portable; a Pico port is `src/boards/rp2040/board.cpp` plus a
 build config — the safety logic and its tests are unchanged. What the ~$4
 Pico buys: 264 KB SRAM, dual core (the safety filter can own a core), PIO
-state machines that decode DMX breaks in hardware, native USB for
-diagnostics. It needs a 3.3 V DMX transceiver (MAX3485) and 5 V level
-shifting to the relay board. The Mega remains the primary target.
+state machines for exotic protocols, native USB for diagnostics. It needs
+5 V level shifting to the relay board. The Mega remains the primary
+target.
