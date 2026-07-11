@@ -1,6 +1,9 @@
 // https://github.com/mathertel/DMXSerial
 #include <DMXSerial.h>
 
+// Watchdog timer, used for hardware resets
+#include <avr/wdt.h>
+
 // Consts
 const int CLOSED = 0;
 const int OPEN = 1;
@@ -77,7 +80,12 @@ unsigned long rests[] = {
   0, 0, 0, 0, 0, 0, 0, 0
 };
 
-void setup() { 
+void setup() {
+
+  // Make sure the watchdog is off after a watchdog reset,
+  // otherwise it can fire again during startup
+  MCUSR = 0;
+  wdt_disable();
 
   // Turn off the power to the DMX shield
   pinMode(DMX_RESET_PIN, OUTPUT);
@@ -116,8 +124,14 @@ void setup() {
 
 }
 
-// function to reset the device
-void(* ResetDevice) (void) = 0;
+// Reset the device via the watchdog timer.  This is a true hardware
+// reset -- jumping to address 0 restarts the program but leaves the
+// UART and other peripherals in their current state, which can keep
+// DMX from recovering.
+void ResetDevice() {
+  wdt_enable(WDTO_15MS);
+  while (true) { }
+}
 
 // Main loop 
 void loop() { 
@@ -159,7 +173,7 @@ void loop() {
   // Read Global DMX values
   int new_mode = constrain(DMXSerial.read(CHANNEL_MODE), 0, 255);
   poof_ms = map(constrain(DMXSerial.read(CHANNEL_POOF_MS), 0, 255), 0, 255, MIN_POOF_DURATION_MS, MAX_POOF_DURATION_MS);
-  rest_ms = map(constrain(DMXSerial.read(CHANNEL_REST_MS), 0, 255), 0, 255, MIN_POOF_DURATION_MS, MAX_REST_DURATION_MS);
+  rest_ms = map(constrain(DMXSerial.read(CHANNEL_REST_MS), 0, 255), 0, 255, MIN_REST_DURATION_MS, MAX_REST_DURATION_MS);
   data_1 = constrain(DMXSerial.read(CHANNEL_DATA_VALUE_1), 0, 255);
   data_2 = constrain(DMXSerial.read(CHANNEL_DATA_VALUE_2), 0, 255);
   if (constrain(DMXSerial.read(CHANNEL_REPEAT_PATTERNS), 0, 255) <= 127) repeat_patterns = false;
@@ -272,14 +286,42 @@ void loop() {
 
 }
 
+// Rollover-safe check: has timestamp t been reached?  A plain
+// "t < now" comparison fails when millis() wraps (every ~49.7 days)
+// and can leave a solenoid stuck open until the clock catches up.
+boolean TimeReached(unsigned long t, unsigned long now) {
+  return (long)(now - t) >= 0;
+}
+
+// Start a poof/rest cycle for a device by stamping its end times
+void StartPoof(int device) {
+  poofs[device] = millis() + poof_ms;
+  if (poofs[device] == 0) poofs[device] = 1; // 0 means "no poof in progress"
+  rests[device] = poofs[device] + rest_ms;
+}
+
 // MODES
 
 int chase_index = 0;
 int chase_direction = 1;
 
-void ChaseInOut_1_8() {
+// In/Out chase modes fire mirrored pairs: poofer i and poofer (7 - i)
+boolean chase_mirrored = false;
 
-  int channel;
+// Close the current chase solenoid (and its mirror when in/out)
+void ChaseClose() {
+  Solenoid(chase_index, CLOSED);
+  if (chase_mirrored) Solenoid(7 - chase_index, CLOSED);
+}
+
+// Open the current chase solenoid (and its mirror when in/out),
+// each only if its DMX enable channel is high
+void ChaseOpen() {
+  if (DMXSerial.read(POOFER_START_CHANNEL + chase_index) >= 254) Solenoid(chase_index, OPEN);
+  if (chase_mirrored && DMXSerial.read(POOFER_START_CHANNEL + (7 - chase_index)) >= 254) Solenoid(7 - chase_index, OPEN);
+}
+
+void ChaseInOut_1_8() {
 
   // Get current time
   unsigned long current_time = millis();
@@ -290,15 +332,15 @@ void ChaseInOut_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if ((chase_index == 3 && chase_direction == 1) ||
             (chase_index == 0 && chase_direction == -1)) {
@@ -332,22 +374,16 @@ void ChaseInOut_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
   
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseOutIn_1_8() {
-
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -358,15 +394,15 @@ void ChaseOutIn_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if ((chase_index == 3 && chase_direction == 1) ||
             (chase_index == 0 && chase_direction == -1)) {
@@ -400,21 +436,16 @@ void ChaseOutIn_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
   
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseIn_1_8() {
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -425,15 +456,15 @@ void ChaseIn_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if (chase_index == 3) {
 
@@ -468,21 +499,16 @@ void ChaseIn_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseOut_1_8() {
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -493,15 +519,15 @@ void ChaseOut_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if (chase_index == 0) {
 
@@ -536,54 +562,48 @@ void ChaseOut_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
   
 }
 
 void ChaseInInit() {
+  chase_mirrored = true;
   chase_index = 0;
   chase_direction = 1;
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
-  if (DMXSerial.read(POOFER_START_CHANNEL + chase_index) >= 254) Solenoid(chase_index, OPEN);
+  StartPoof(chase_index);
+  ChaseOpen();
 }
 
 void ChaseOutInit() {
+  chase_mirrored = true;
   chase_index = 3;
   chase_direction = -1;
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
-  if (DMXSerial.read(POOFER_START_CHANNEL + chase_index) >= 254) Solenoid(chase_index, OPEN);
+  StartPoof(chase_index);
+  ChaseOpen();
 }
 
 void ChaseUpInit() {
+  chase_mirrored = false;
   chase_index = 0;
   chase_direction = 1;
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
-  if (DMXSerial.read(POOFER_START_CHANNEL + chase_index) >= 254) Solenoid(chase_index, OPEN);
+  StartPoof(chase_index);
+  ChaseOpen();
 }
 
 void ChaseDownInit() {
+  chase_mirrored = false;
   chase_index = 7;
   chase_direction = -1;
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
-  if (DMXSerial.read(POOFER_START_CHANNEL + chase_index) >= 254) Solenoid(chase_index, OPEN);
+  StartPoof(chase_index);
+  ChaseOpen();
 }
 
 void ChaseUp_1_8() {
-
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -594,15 +614,15 @@ void ChaseUp_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if (chase_index == 7) {
           // if repeat is off and the mode is the same, we "rest"
@@ -636,22 +656,16 @@ void ChaseUp_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseUpDown_1_8() {
-
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -662,15 +676,15 @@ void ChaseUpDown_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if ((chase_index == 7 && chase_direction == 1) ||
             (chase_index == 0 && chase_direction == -1)) {
@@ -704,21 +718,16 @@ void ChaseUpDown_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseDown_1_8() {
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -729,15 +738,15 @@ void ChaseDown_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if (chase_index == 0) {
           
@@ -772,22 +781,16 @@ void ChaseDown_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
 void ChaseDownUp_1_8() {
-
-  int channel;
 
   // Get current time
   unsigned long current_time = millis();
@@ -798,15 +801,15 @@ void ChaseDownUp_1_8() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[chase_index] < current_time) {
+    if (TimeReached(poofs[chase_index], current_time)) {
 
       // Yes, we're done with the poof
 
-      // CLOSE SOLENOID
-      Solenoid(chase_index, CLOSED);
+      // CLOSE SOLENOID(S)
+      ChaseClose();
 
       // Is the device resting?
-      if (rests[chase_index] < current_time) {
+      if (TimeReached(rests[chase_index], current_time)) {
 
         if ((chase_index == 7 && chase_direction == 1) ||
             (chase_index == 0 && chase_direction == -1)) {
@@ -840,16 +843,12 @@ void ChaseDownUp_1_8() {
 
   } // if poofs[device] != 0
   
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL + chase_index;
-
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[chase_index] = millis() + poof_ms;
-  rests[chase_index] = poofs[chase_index] + rest_ms;
+  StartPoof(chase_index);
 
   // open if enabled
-  if (DMXSerial.read(channel) >= 254) Solenoid(chase_index, OPEN);
+  ChaseOpen();
 
 }
 
@@ -871,7 +870,7 @@ void Alternate() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[alternate_index] < current_time) {
+    if (TimeReached(poofs[alternate_index], current_time)) {
 
       // Yes, we're done with the poof
 
@@ -887,7 +886,7 @@ void Alternate() {
 
 
       // Is the device resting?
-      if (rests[alternate_index] < current_time) {
+      if (TimeReached(rests[alternate_index], current_time)) {
 
         if (alternate_index == 0) {
 
@@ -927,8 +926,7 @@ void Alternate() {
 
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[alternate_index] = millis() + poof_ms;
-  rests[alternate_index] = poofs[alternate_index] + rest_ms;
+  StartPoof(alternate_index);
 
   // open if enabled
   if (DMXSerial.read(channel) >= 254) Solenoid(alternate_index, OPEN);
@@ -944,13 +942,8 @@ void Alternate() {
 
 void PoofAll() {
 
-  int channel;
-
   // Get current time
   unsigned long current_time = millis();
-
-  // The STARTING DMX channel of the device
-  channel = POOFER_START_CHANNEL;
 
   // Are we in the middle of a poof/rest event?
   if (poofs[0] != 0) {
@@ -958,7 +951,7 @@ void PoofAll() {
     // This device is in a poof event
 
     // Are we done with the poof?      
-    if (poofs[0] < current_time) {
+    if (TimeReached(poofs[0], current_time)) {
 
       // Yes, we're done with the poof
 
@@ -981,7 +974,7 @@ void PoofAll() {
       Solenoid(15, CLOSED);
 
       // Is the device resting?
-      if (rests[0] < current_time) {
+      if (TimeReached(rests[0], current_time)) {
 
         // if repeat is off and the mode is the same, we "rest"
         if (repeat_patterns == false && mode == DMXSerial.read(CHANNEL_MODE)) return;
@@ -1014,8 +1007,7 @@ void PoofAll() {
 
   // We have a new poof!
   // Update the poofs/rests arrays with the new timestamps
-  poofs[0] = millis() + poof_ms;
-  rests[0] = poofs[0] + rest_ms;
+  StartPoof(0);
 
   if (DMXSerial.read(POOFER_START_CHANNEL + 0) >= 254) Solenoid(0, OPEN);
   if (DMXSerial.read(POOFER_START_CHANNEL + 1) >= 254) Solenoid(1, OPEN);
@@ -1048,11 +1040,16 @@ void RawDMX() {
     // If enabled is not 255, the device can not poof 
     if (constrain(DMXSerial.read(channel), 0, 255) < 254) {
 
-      // This device is not enabled.  Close the solenoid and 
-      // reset the timestamp.  Then move to the next device. 
+      // This device is not enabled.  Close the solenoid and
+      // reset the timestamp.  Then move to the next device.
 
       // CLOSE SOLENOID
       Solenoid(device, CLOSED);
+
+      // Reset the timestamps so the device can poof again
+      // the next time its channel goes high
+      poofs[device] = 0;
+      rests[device] = 0;
 
       // Nothing else to do.  Move to the next device.
       continue;
@@ -1068,7 +1065,7 @@ void RawDMX() {
       // This device is in a poof event
 
       // Are we done with the poof?      
-      if (poofs[device] < current_time) {
+      if (TimeReached(poofs[device], current_time)) {
 
         // Yes, we're done with the poof
 
@@ -1076,10 +1073,12 @@ void RawDMX() {
         Solenoid(device, CLOSED);
 
         // Is the device resting?
-        if (rests[device] < current_time) {
+        if (TimeReached(rests[device], current_time)) {
 
-          // if repeat is off and the mode is the same, we "rest"
-          if (repeat_patterns == false && constrain(DMXSerial.read(channel), 0, 255) >= 254) return;
+          // If repeat is off, wait for the channel to drop before
+          // allowing another poof.  Only skip THIS device -- a return
+          // here would block every later device from being processed.
+          if (repeat_patterns == false && constrain(DMXSerial.read(channel), 0, 255) >= 254) continue;
 
           // We're done resting.  Reset the poofs/rests timestamp.
           poofs[device] = 0;
@@ -1106,8 +1105,7 @@ void RawDMX() {
 
       // We have a new poof!
       // Update the poofs/rests arrays with the new timestamps
-      poofs[device] = millis() + poof_ms;
-      rests[device] = poofs[device] + rest_ms;
+      StartPoof(device);
 
       Solenoid(device, OPEN);
 
