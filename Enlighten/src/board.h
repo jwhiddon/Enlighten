@@ -76,6 +76,8 @@ bool showOpenNext(char* name, uint8_t cap);
 int16_t showReadByte();  // next file byte or -1 at EOF / no file
 void showClose();
 bool playButtonPressed();  // raw level of the PLAY button (true = pressed)
+bool dispButtonPressed();  // display-page cycle button
+bool selButtonPressed();   // page-context select/input button
 
 // Bench mode: jumper sampled once at boot.  In bench mode the USB serial
 // port (free, since DMX is not started) is an interactive console.

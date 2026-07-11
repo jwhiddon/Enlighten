@@ -11,6 +11,8 @@ constexpr uint8_t ARM_KEY = 3;           // keyswitch to GND: LOW = arm permitte
 constexpr uint8_t PROTOCOL_SELECT = 4;   // open = MIDI (primary), GND = DMX
 constexpr uint8_t BENCH_SELECT = 5;      // jumper to GND at boot = bench mode
 constexpr uint8_t PLAY_BUTTON = 6;       // momentary to GND: SD show play/stop
+constexpr uint8_t DISP_BUTTON = 7;       // momentary to GND: cycle display pages
+constexpr uint8_t SEL_BUTTON = 8;        // momentary to GND: page-context input
 constexpr uint8_t SD_CS = 53;            // SD card module chip select (SPI)
 
 // 16x2 LCD on a PCF8574 I2C backpack, D20 (SDA) / D21 (SCL).

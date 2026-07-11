@@ -62,6 +62,8 @@ void init() {
   pinMode(pins::PROTOCOL_SELECT, INPUT_PULLUP);
   pinMode(pins::BENCH_SELECT, INPUT_PULLUP);
   pinMode(pins::PLAY_BUTTON, INPUT_PULLUP);
+  pinMode(pins::DISP_BUTTON, INPUT_PULLUP);
+  pinMode(pins::SEL_BUTTON, INPUT_PULLUP);
 
   // Hold the DMX shield unpowered until dmxBegin().
   pinMode(pins::DMX_SHIELD_POWER, OUTPUT);
@@ -322,6 +324,8 @@ void showClose() {
 }
 
 bool playButtonPressed() { return digitalRead(pins::PLAY_BUTTON) == LOW; }
+bool dispButtonPressed() { return digitalRead(pins::DISP_BUTTON) == LOW; }
+bool selButtonPressed() { return digitalRead(pins::SEL_BUTTON) == LOW; }
 
 bool benchSelected() { return digitalRead(pins::BENCH_SELECT) == LOW; }
 

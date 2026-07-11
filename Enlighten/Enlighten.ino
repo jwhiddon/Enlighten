@@ -23,6 +23,7 @@
 #include "src/core/dmx_decoder.h"
 #include "src/core/midi_decoder.h"
 #include "src/core/midi_parser.h"
+#include "src/core/panel_ui.h"
 #include "src/core/safety.h"
 #include "src/core/sequencer.h"
 #include "src/core/show_input.h"
@@ -42,6 +43,10 @@ static bool g_bench = false;  // D5 jumper at boot: USB console, no show HW
 static ShowPlayer g_player;
 static bool g_sd_ok = false;
 static char g_show_name[16] = {};
+
+// Panel UI: DISP cycles display pages, SEL is page-context input.
+static PanelUi g_ui;
+static ShowStats g_stats;
 
 // Signal the selected protocol on the LED before entering service:
 // 1 blink = DMX, 2 blinks = MIDI.  Runs before the watchdog is enabled.
@@ -135,15 +140,23 @@ void setup() {
   Board::watchdogEnable();
 }
 
-// PLAY button: debounced edge -> start next *.SHW / stop the current one.
+// Debounced press-edge detector for a panel button.
+struct ButtonEdge {
+  bool prev = false;
+  TimeMs last_change = 0;
+
+  bool pressedEdge(bool raw, TimeMs now) {
+    if (raw == prev || elapsedMs(last_change, now) < 30) return false;
+    prev = raw;
+    last_change = now;
+    return raw;
+  }
+};
+
+// PLAY button: start next *.SHW / stop the current one.
 static void servicePlayButton(TimeMs now) {
-  static bool prev = false;
-  static TimeMs last_change = 0;
-  bool pressed = Board::playButtonPressed();
-  if (pressed == prev || elapsedMs(last_change, now) < 30) return;
-  prev = pressed;
-  last_change = now;
-  if (!pressed) return;  // act on press, ignore release
+  static ButtonEdge edge;
+  if (!edge.pressedEdge(Board::playButtonPressed(), now)) return;
 
   if (g_player.playing()) {
     g_player.stop();
@@ -152,6 +165,14 @@ static void servicePlayButton(TimeMs now) {
              Board::showOpenNext(g_show_name, sizeof(g_show_name))) {
     g_player.start(now);
   }
+}
+
+// DISP / SEL buttons: display pages and page-context input.
+static void serviceUiButtons(TimeMs now) {
+  static ButtonEdge disp, sel;
+  if (disp.pressedEdge(Board::dispButtonPressed(), now)) g_ui.onDispPress(now);
+  if (sel.pressedEdge(Board::selButtonPressed(), now)) g_ui.onSelPress(now);
+  if (g_ui.consumeStatsReset()) g_stats.reset();
 }
 
 void loop() {
@@ -184,6 +205,14 @@ void loop() {
       if (g_midi_parser.feed((uint8_t)b, &ev)) g_midi.onEvent(ev, now);
     }
     in = g_midi.snapshot(now);
+  }
+
+  // 1a. Panel input: display pages + panel mode override (choreography
+  //     only — the safety chain is untouched by panel input).
+  serviceUiButtons(now);
+  {
+    ModeId panel_mode;
+    if (g_ui.modeOverride(&panel_mode)) in.mode = panel_mode;
   }
 
   // 1b. SD show playback: pump file bytes, advance the playback clock.
@@ -229,14 +258,30 @@ void loop() {
   Board::writeChannelLeds(
       channelLedMask(g_safety.state(), in.trigger_mask, mask, now));
 
+  // Show statistics (STATS page), fed the filtered output — the truth.
+  g_stats.update(mask, now);
+
   // Operator LCD: render the desired screen (cheap) and let the budgeted
   // writer converge the panel one character per loop.
   {
     char screen[DISPLAY_CHARS + 1];
-    renderDisplay(screen, g_safety.state(), g_safety.fault(), g_protocol, in,
-                  mask, hw.arm_key, now, g_bench,
-                  g_player.playing() ? g_show_name : nullptr,
-                  g_player.positionMs());
+    DisplayPage pg = g_ui.page(now);
+    if (pg == DisplayPage::STATUS) {
+      renderDisplay(screen, g_safety.state(), g_safety.fault(), g_protocol,
+                    in, mask, hw.arm_key, now, g_bench,
+                    g_player.playing() ? g_show_name : nullptr,
+                    g_player.positionMs());
+    } else {
+      AuxPageInfo info;
+      info.last_fault = g_safety.fault();
+      info.proto = g_protocol;
+      info.bench = g_bench;
+      info.sd_ok = g_sd_ok;
+      info.link_ok = in.link_ok;
+      info.active_mode = in.mode;
+      info.uptime_ms = now;
+      renderAuxPage(screen, pg, g_ui, g_stats, info);
+    }
     Board::displayService(screen);
   }
 
