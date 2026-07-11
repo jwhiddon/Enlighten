@@ -14,6 +14,7 @@ This checklist is part of the safety design — see docs/SAFETY.md.
 | D4 | Protocol select | open = MIDI (primary), jumper to GND = DMX (sampled at boot) |
 | D5 | Bench mode | jumper to GND at boot = USB test console, interlocks simulated — never with fuel |
 | D6 | PLAY button | momentary to GND: SD show start/next/stop |
+| D7/D8 | DISP / SEL buttons | display page cycling and page-context input |
 | D50–D53 | SD card (SPI) | standalone .SHW playback; CS = D53 |
 | D9 | DMX shield power gate | legacy shield enable |
 | D13 | Status LED | see SAFETY.md for patterns |

@@ -81,6 +81,8 @@ This is what keeps the valves closed during resets — do not skip it.
 | D4 | Protocol select | Leave open for **MIDI** (primary). Jumper to GND for **DMX**. |
 | D5 | Bench mode select | Jumper to GND at boot = bench/test mode (§5b). Remove for shows. |
 | D6 | PLAY button (optional) | Momentary to GND: start next / stop SD show (§7.4). |
+| D7 | DISP button (optional) | Momentary to GND: cycle display pages (§2.6). |
+| D8 | SEL button (optional) | Momentary to GND: page-context input (§2.6). |
 | D50–D53 | SD card module (optional) | Standard SPI wiring: MISO→D50, MOSI→D51, SCK→D52, CS→D53, 5 V module or 3.3 V with level shifting. |
 | D9 | DMX shield power gate | Per your shield (legacy Enlighten shield uses this). |
 | D13 | Status LED | Onboard; optionally wire a panel LED (with resistor) in parallel. |
@@ -179,7 +181,25 @@ per loop (never threatening the 5 ms safety budget), the I²C bus has a
 hard timeout, and any display/bus fault silently disables the panel for
 the session — a flaky LCD can never stall the show.
 
-### 2.6 Per-solenoid panel LEDs (optional)
+### 2.6 Display pages and panel input (DISP / SEL buttons)
+
+**DISP** cycles the LCD through four pages; any aux page auto-returns to
+STATUS after 30 s so the safety screen is never far away. **SEL** acts on
+the current page:
+
+| Page | Shows | SEL does |
+|---|---|---|
+| STATUS | the normal state screen (§2.5) | — |
+| STATS | total fires, flame seconds (fuel proxy), busiest poofer | reset counters |
+| DIAG | uptime, last fault, SD and signal status | — |
+| MODE SELECT | active mode + panel override | cycle override: AUTO → OFF → RAW → … |
+
+The MODE SELECT page gives the box its own mode control: pick a pattern
+with SEL and it overrides the console/CC mode until you cycle back to
+AUTO. This is choreography-only input — arming, deadman, E-stop, and duty
+limits are completely unaffected by the panel buttons.
+
+### 2.7 Per-solenoid panel LEDs (optional)
 
 16 LEDs on the box, one per solenoid (wiring in §2.2):
 
