@@ -14,6 +14,14 @@ constexpr uint16_t MAX_POOF_MS = 500;
 constexpr uint16_t MIN_REST_MS = 45;
 constexpr uint16_t MAX_REST_MS = 2000;
 
+// ---- Output drive polarity -------------------------------------------------
+// true  = active-LOW outputs (mechanical relay boards: pin HIGH = closed).
+// false = active-HIGH outputs (typical MOSFET/SSR boards: pin LOW = closed).
+// Whichever you use, verify the de-energized/reset pin state reads as
+// CLOSED at the driver board: external pull-UPs for active-low,
+// pull-DOWNs for active-high.  Re-run the bench checklist after changing.
+constexpr bool OUTPUTS_ACTIVE_LOW = true;
+
 // ---- Hard physical limits (DutyLimiter; independent of any input) -------
 constexpr uint16_t MAX_OPEN_MS            = 500;    // absolute continuous-open cap
 constexpr uint16_t MIN_CLOSE_MS           = 50;     // forced close between opens
